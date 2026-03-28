@@ -41,7 +41,7 @@ jobs:
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:
-          context: .
+          context: ./controlroom/sidecar
           push: true
           tags: |
             ghcr.io/${{ steps.repo_name.outputs.value }}:latest
