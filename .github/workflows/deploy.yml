@@ -2,7 +2,7 @@ name: Deploy Pipeline
 
 on:
   workflow_run:
-    workflows: ["CI Pipeline"] # Listens to the exact name of the CI workflow
+    workflows: ["CI Pipeline"] # He listens here to the name of file 1 (has to be exact)
     types:
       - completed
 
@@ -12,9 +12,7 @@ jobs:
     # Only runs if CI passed and the branch is main, prod, or a version tag
     if: >
       github.event.workflow_run.conclusion == 'success' &&
-      (github.event.workflow_run.head_branch == 'main' ||
-       github.event.workflow_run.head_branch == 'prod' ||
-       startsWith(github.event.workflow_run.head_branch, 'v'))
+      startsWith(github.event.workflow_run.head_branch, 'v')
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -24,7 +22,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          # Checks out the exact commit that was just approved by CI
+          #  Takes the code of the exact commit that just happened and succeeded
           ref: ${{ github.event.workflow_run.head_sha }}
 
       - name: Lowercase repo name
@@ -41,7 +39,7 @@ jobs:
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:
-          context: ./controlroom/sidecar
+          context: .
           push: true
           tags: |
             ghcr.io/${{ steps.repo_name.outputs.value }}:latest
