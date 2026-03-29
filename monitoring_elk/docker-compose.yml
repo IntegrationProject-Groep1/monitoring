@@ -17,13 +17,15 @@ services:
   logstash:
     image: docker.elastic.co/logstash/logstash:8.17.0
     container_name: mon-logstash
+    environment:
+      - xpack.monitoring.enabled=false
+      - ELASTICSEARCH_HOSTS=http://mon-elasticsearch:9200
     volumes:
       - ./logstash/pipeline:/usr/share/logstash/pipeline
     networks:
       - mon-net
     depends_on:
       - elasticsearch
-      - rabbitmq
 
   kibana:
     image: docker.elastic.co/kibana/kibana:8.17.0
@@ -37,43 +39,10 @@ services:
     depends_on:
       - elasticsearch
 
-  rabbitmq:
-    image: rabbitmq:3-management
-    container_name: mon-rabbitmq
-    environment:
-      - RABBITMQ_DEFAULT_USER=monitoring
-      - RABBITMQ_DEFAULT_PASS=monitoring123
-    ports:
-      - "5672:5672"
-      - "15672:15672"
-    networks:
-      - mon-net
-
-  fake-facturatie:
-    image: nginx:alpine
-    container_name: mon-fake-facturatie
-    networks:
-      - mon-net
-
-  sidecar-facturatie:
-    build: ./sidecar
-    image: monitoring/sidecar:latest
-    container_name: mon-sidecar-facturatie
-    environment:
-      - SYSTEM_NAME=facturatie
-      - TARGET_HOST=mon-fake-facturatie
-      - TARGET_PORT=80
-      - RABBITMQ_HOST=mon-rabbitmq
-      - RABBITMQ_USER=monitoring
-      - RABBITMQ_PASS=monitoring123
-    networks:
-      - mon-net
-    depends_on:
-      - fake-facturatie
-      - rabbitmq
-
 volumes:
   es-data:
 
 networks:
   mon-net:
+    name: mon-net
+    external: true
