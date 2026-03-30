@@ -45,8 +45,7 @@ jobs:
         run: echo "$ENV_CONTENT" > monitoring_elk/.env
 
       - name: Start RabbitMQ
-        run: docker compose -f test/docker-compose.yml up -d --wait --wait-timeout 60
-
+        run: docker compose -f test/docker-compose.yml up -d --wait
       - name: Start Elasticsearch and Logstash
         run: docker compose -f monitoring_elk/docker-compose.yml up -d --wait --wait-timeout 60 elasticsearch logstash
 
