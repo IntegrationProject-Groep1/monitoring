@@ -16,4 +16,4 @@ services:
 
 networks:
   elk-net:
-    external: true
+    name: elk-net

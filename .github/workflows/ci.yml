@@ -8,72 +8,47 @@ on:
     branches: [ "main", "dev", "prod" ]
 
 jobs:
-  test:
+
+  validate:
+    name: Validate configs
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Validate docker-compose syntax
+        run: docker compose -f monitoring_elk/docker-compose.yml config --quiet
+
+  integration-test:
+    name: Integration test
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    needs: validate
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Validate docker-compose config
-        run: docker compose -f monitoring_elk/docker-compose.yml config --quiet
-
-      - name: Create .env for ELK stack
-        run: |
-          cat > monitoring_elk/.env <<EOF
-          ES_ADMIN_USER=elastic
-          ES_ADMIN_PASS=elk123
-          ES_MEM_LIMIT=512m
-          KIBANA_SYSTEM_PASS=kibana123
-          RABBITMQ_HOST=rabbitmq-test
-          RABBITMQ_PORT=5672
-          RABBITMQ_USER=guest
-          RABBITMQ_PASS=guest
-          RABBITMQ_VHOST=/
-          EOF
+      - name: Write test .env
+        env:
+          ENV_CONTENT: |
+            ES_ADMIN_USER=elastic
+            ES_ADMIN_PASS=elk123
+            ES_MEM_LIMIT=512m
+            KIBANA_SYSTEM_PASS=kibana123
+            RABBITMQ_HOST=rabbitmq-test
+            RABBITMQ_PORT=5672
+            RABBITMQ_USER=guest
+            RABBITMQ_PASS=guest
+            RABBITMQ_VHOST=/
+        run: echo "$ENV_CONTENT" > monitoring_elk/.env
 
       - name: Start RabbitMQ
-        run: docker compose -f test/docker-compose.yml up -d
+        run: docker compose -f test/docker-compose.yml up -d --wait --wait-timeout 60
 
-      - name: Wait for RabbitMQ to be healthy
-        run: |
-          echo "Waiting for RabbitMQ..."
-          for i in $(seq 1 20); do
-            STATUS=$(docker inspect --format='{{.State.Health.Status}}' rabbitmq-test 2>/dev/null || echo "starting")
-            echo "Attempt $i: $STATUS"
-            if [ "$STATUS" = "healthy" ]; then
-              echo "RabbitMQ is healthy."
-              break
-            fi
-            if [ "$i" = "20" ]; then
-              echo "RabbitMQ did not become healthy in time."
-              docker compose -f test/docker-compose.yml logs
-              exit 1
-            fi
-            sleep 3
-          done
-
-      - name: Start ELK stack
-        run: docker compose -f monitoring_elk/docker-compose.yml up -d elasticsearch logstash
-
-      - name: Wait for Elasticsearch to be healthy
-        run: |
-          echo "Waiting for Elasticsearch..."
-          for i in $(seq 1 30); do
-            STATUS=$(docker inspect --format='{{.State.Health.Status}}' elasticsearch 2>/dev/null || echo "starting")
-            echo "Attempt $i: $STATUS"
-            if [ "$STATUS" = "healthy" ]; then
-              echo "Elasticsearch is healthy."
-              break
-            fi
-            if [ "$i" = "30" ]; then
-              echo "Elasticsearch did not become healthy in time."
-              docker compose -f monitoring_elk/docker-compose.yml logs elasticsearch
-              exit 1
-            fi
-            sleep 5
-          done
+      - name: Start Elasticsearch and Logstash
+        run: docker compose -f monitoring_elk/docker-compose.yml up -d --wait --wait-timeout 120 elasticsearch logstash
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -83,7 +58,7 @@ jobs:
       - name: Install test dependencies
         run: pip install -r test/requirements.txt
 
-      - name: Run heartbeat producer
+      - name: Send test heartbeats
         run: python test/producer.py
 
       - name: Verify documents indexed in Elasticsearch
@@ -92,6 +67,16 @@ jobs:
           ES_HOST: http://localhost:30060
           ES_ADMIN_USER: elastic
           ES_ADMIN_PASS: elk123
+
+      - name: Dump logs on failure
+        if: failure()
+        run: |
+          echo "=== Logstash ==="
+          docker compose -f monitoring_elk/docker-compose.yml logs logstash
+          echo "=== Elasticsearch ==="
+          docker compose -f monitoring_elk/docker-compose.yml logs elasticsearch
+          echo "=== RabbitMQ ==="
+          docker compose -f test/docker-compose.yml logs rabbitmq
 
       - name: Tear down
         if: always()
