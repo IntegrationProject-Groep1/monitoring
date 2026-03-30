@@ -1,0 +1,19 @@
+services:
+  rabbitmq:
+    image: rabbitmq:3.13-management
+    container_name: rabbitmq-test
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    networks:
+      - elk-net
+    healthcheck:
+      test: rabbitmq-diagnostics -q ping
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+networks:
+  elk-net:
+    external: true
