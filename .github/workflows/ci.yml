@@ -18,7 +18,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Validate docker-compose syntax
-        run: docker compose -f monitoring_elk/docker-compose.yml config --quiet
+        run: docker compose -f docker-compose.yml config --quiet
 
   integration-test:
     name: Integration test
