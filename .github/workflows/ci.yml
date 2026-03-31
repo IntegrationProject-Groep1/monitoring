@@ -47,7 +47,7 @@ jobs:
       - name: Start RabbitMQ
         run: docker compose -f test/docker-compose.yml up -d --wait
       - name: Start Elasticsearch and Logstash
-        run: docker compose -f monitoring_elk/docker-compose.yml up -d --wait --wait-timeout 60 elasticsearch logstash
+        run: docker compose -f docker-compose.yml up -d --wait --wait-timeout 60 elasticsearch logstash
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -71,14 +71,14 @@ jobs:
         if: failure()
         run: |
           echo "=== Logstash ==="
-          docker compose -f monitoring_elk/docker-compose.yml logs logstash
+          docker compose -f docker-compose.yml logs logstash
           echo "=== Elasticsearch ==="
-          docker compose -f monitoring_elk/docker-compose.yml logs elasticsearch
+          docker compose -f docker-compose.yml logs elasticsearch
           echo "=== RabbitMQ ==="
           docker compose -f test/docker-compose.yml logs rabbitmq
 
       - name: Tear down
         if: always()
         run: |
-          docker compose -f monitoring_elk/docker-compose.yml down
+          docker compose -f docker-compose.yml down
           docker compose -f test/docker-compose.yml down
