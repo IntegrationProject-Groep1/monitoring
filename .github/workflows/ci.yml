@@ -39,8 +39,8 @@ jobs:
             KIBANA_SYSTEM_PASS=kibana123
             RABBITMQ_HOST=rabbitmq-test
             RABBITMQ_PORT=5672
-            RABBITMQ_USER=guest
-            RABBITMQ_PASS=guest
+            RABBITMQMONITORING_USER=guest
+            RABBITMQMONITORING_PASS=guest
             RABBITMQ_VHOST=/
         run: echo "$ENV_CONTENT" > monitoring_elk/.env
 
