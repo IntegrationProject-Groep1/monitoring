@@ -50,6 +50,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     needs: validate
+    env:
+      COMPOSE_FILE: docker-compose.yml:test/docker-compose.yml
+      COMPOSE_PATH_SEPARATOR: ":"
 
     steps:
       - name: Checkout code
@@ -72,7 +75,6 @@ jobs:
       - name: Start stack (RabbitMQ + ELK + detector)
         run: |
           docker compose --env-file monitoring_elk/.env \
-            -f docker-compose.yml -f test/docker-compose.yml \
             up -d --wait --wait-timeout 90 \
             rabbitmq elasticsearch logstash detector-service
 
@@ -85,7 +87,7 @@ jobs:
         run: pip install -r test/requirements.txt
 
       - name: Show compose service status
-        run: docker compose --env-file monitoring_elk/.env -f docker-compose.yml -f test/docker-compose.yml ps
+        run: docker compose --env-file monitoring_elk/.env ps
 
       - name: Send test heartbeats and platform logs
         run: python3 test/producer.py
@@ -115,11 +117,9 @@ jobs:
         if: failure()
         run: |
           docker compose --env-file monitoring_elk/.env \
-            -f docker-compose.yml -f test/docker-compose.yml \
             logs --no-color
 
       - name: Tear down
         if: always()
         run: |
-          docker compose --env-file monitoring_elk/.env \
-            -f docker-compose.yml -f test/docker-compose.yml down -v
+          docker compose --env-file monitoring_elk/.env down -v

@@ -1,10 +1,8 @@
 name: Deploy Pipeline
 
 on:
-  push:
-    branches: ["dev"]   # dev: build on every push, no tag required
   workflow_run:
-    workflows: ["CI Pipeline"] # Must match the 'name' of your CI workflow exactly
+    workflows: ["CI Pipeline"]
     types:
       - completed
   workflow_dispatch:
@@ -13,11 +11,11 @@ jobs:
   build-and-push:
     name: Build and Push Docker Image
     if: >
-      (github.event_name == 'push' && github.ref == 'refs/heads/dev') ||
-      (github.event_name == 'workflow_dispatch') ||
+      github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'workflow_run' &&
        github.event.workflow_run.conclusion == 'success' &&
-       startsWith(github.event.workflow_run.head_branch, 'v'))
+       (github.event.workflow_run.head_branch == 'dev' ||
+        startsWith(github.event.workflow_run.head_branch, 'v')))
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -27,16 +25,23 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event_name == 'push' && github.sha || github.event.workflow_run.head_sha }}
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.sha || github.event.workflow_run.head_sha }}
 
-      - name: Set Image Tag
+      - name: Set image tag
         id: vars
         run: |
-          if [[ "${{ github.event_name }}" == "push" ]]; then
-            echo "tag=dev" >> $GITHUB_OUTPUT
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            BRANCH="${{ github.ref_name }}"
           else
-            # workflow_run triggered by a tag (e.g. v1.2.3) → prod
-            echo "tag=prod" >> $GITHUB_OUTPUT
+            BRANCH="${{ github.event.workflow_run.head_branch }}"
+          fi
+
+          if [[ "$BRANCH" == "dev" ]]; then
+            echo "tag=latest-dev" >> $GITHUB_OUTPUT
+            echo "extra_tag=" >> $GITHUB_OUTPUT
+          else
+            echo "tag=latest" >> $GITHUB_OUTPUT
+            echo "extra_tag=$BRANCH" >> $GITHUB_OUTPUT
           fi
 
       - name: Lowercase repo name
@@ -50,13 +55,23 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push Docker image
+      - name: Build and push Docker image (dev)
+        if: steps.vars.outputs.tag == 'latest-dev'
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: |
+            ghcr.io/${{ steps.repo_name.outputs.value }}:latest-dev
+            ghcr.io/${{ steps.repo_name.outputs.value }}:${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Build and push Docker image (prod release)
+        if: steps.vars.outputs.tag == 'latest'
         uses: docker/build-push-action@v5
         with:
           context: .
           push: true
           tags: |
             ghcr.io/${{ steps.repo_name.outputs.value }}:latest
-            ghcr.io/${{ steps.repo_name.outputs.value }}:${{ steps.vars.outputs.tag }}
-            ghcr.io/${{ steps.repo_name.outputs.value }}:${{ github.sha }}
-
+            ghcr.io/${{ steps.repo_name.outputs.value }}:${{ steps.vars.outputs.extra_tag }}
+            ghcr.io/${{ steps.repo_name.outputs.value }}:${{ github.event.workflow_run.head_sha || github.sha }}

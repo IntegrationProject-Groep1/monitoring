@@ -29,8 +29,8 @@ RABBITMQ_PASS = os.environ["RABBITMQMONITORING_PASS"]
 HEARTBEAT_QUEUE = "heartbeat"
 LOGS_QUEUE = "logs"
 
-HEARTBEAT_SOURCES = ["planning", "crm", "kassa", "facturatie", "monitoring", "frontend", "mailing"]
-LOG_SOURCES = ["planning", "crm", "kassa", "facturatie", "frontend", "mailing", "identity-service"]
+HEARTBEAT_SOURCES = ["planning", "crm", "kassa", "facturatie", "monitoring", "frontend", "mailing", "iot_gateway"]
+LOG_SOURCES = ["planning", "crm", "kassa", "facturatie", "frontend", "mailing", "identity-service", "iot_gateway"]
 
 
 def _envelope(source: str, msg_type: str, version: str = "2.0") -> tuple[ET.Element, ET.Element, ET.Element]:

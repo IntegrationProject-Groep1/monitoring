@@ -3,11 +3,13 @@ import base64
 import json
 import logging
 import os
+import queue
 import re
 import threading
 import time
 import uuid
 from datetime import datetime, timedelta, timezone
+from typing import NamedTuple
 import xml.etree.ElementTree as ET
 
 import pika
@@ -15,7 +17,7 @@ from elasticsearch import Elasticsearch, NotFoundError
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from weasyprint import HTML
 
-# Configuraties (via Env)
+# ... (Configuraties remains the same until ES_HOST)
 ES_HOST = os.getenv("ES_HOST", "http://elasticsearch:9200")
 ES_USER = os.getenv("ES_ADMIN_USER", "elastic")
 ES_PASS = os.getenv("ES_ADMIN_PASS")
@@ -27,6 +29,7 @@ RABBITMQ_VHOST = os.environ["RABBITMQ_VHOST"]
 THRESHOLD_SECONDS = 3
 COOLDOWN_MINUTES = 5
 REPORT_QUEUE = os.getenv("REPORT_QUEUE", "monitoring.reports")
+ALERTS_QUEUE = os.getenv("ALERTS_QUEUE", "monitoring.alerts")
 REPORT_RECIPIENTS = os.getenv(
     "REPORT_RECIPIENTS",
     "admin1@example.com:admin-001:Platform:Admin,client@example.com:client-001:Event:Client",
@@ -37,19 +40,6 @@ REPORT_SOURCE = os.getenv("REPORT_SOURCE", "monitoring")
 REPORT_MAIL_TYPE = os.getenv("REPORT_MAIL_TYPE", "daily_report")
 REPORT_TIME_HOUR = int(os.getenv("REPORT_TIME_HOUR", "6"))
 REPORT_TIME_MINUTE = int(os.getenv("REPORT_TIME_MINUTE", "0"))
-
-logging.basicConfig(
-    level=os.getenv("LOG_LEVEL", "INFO"),
-    format="%(asctime)s %(levelname)s %(message)s",
-)
-logger = logging.getLogger("detector")
-
-es = Elasticsearch([ES_HOST], basic_auth=(ES_USER, ES_PASS) if ES_PASS else None)
-cooldown_list: dict[str, datetime] = {}
-
-_thread_local = threading.local()
-_report_thread: threading.Thread | None = None
-_report_lock = threading.Lock()
 
 TEMPLATE_ENV = Environment(
     loader=FileSystemLoader(os.path.join(os.path.dirname(__file__), "templates")),
@@ -75,53 +65,125 @@ KNOWN_SYSTEMS = {
     "monitoring",
     "frontend",
     "mailing",
+    "iot_gateway",
+    "identity-service",
 }
 
+logging.basicConfig(
+    level=os.getenv("LOG_LEVEL", "INFO"),
+    format="%(asctime)s %(levelname)s %(message)s",
+)
+logger = logging.getLogger("detector")
 
-def _get_rabbit_channel():
-    rabbit_conn = getattr(_thread_local, "rabbit_conn", None)
-    rabbit_channel = getattr(_thread_local, "rabbit_channel", None)
-    if (
-        rabbit_conn is None
-        or rabbit_conn.is_closed
-        or rabbit_channel is None
-        or rabbit_channel.is_closed
-    ):
-        credentials = pika.PlainCredentials(RABBITMQ_USER, RABBITMQ_PASS)
-        rabbit_conn = pika.BlockingConnection(pika.ConnectionParameters(
-            host=RABBITMQ_HOST,
-            port=RABBITMQ_PORT,
-            virtual_host=RABBITMQ_VHOST,
-            credentials=credentials,
-            heartbeat=60,
-            blocked_connection_timeout=30,
-        ))
-        rabbit_channel = rabbit_conn.channel()
-        _thread_local.rabbit_conn = rabbit_conn
-        _thread_local.rabbit_channel = rabbit_channel
-        logger.info("RabbitMQ connection established for %s", threading.current_thread().name)
-    return rabbit_channel
+es = Elasticsearch([ES_HOST], basic_auth=(ES_USER, ES_PASS) if ES_PASS else None)
+cooldown_list: dict[str, datetime] = {}
 
+MAX_PUBLISH_RETRIES = 5
 
-def publish(queue: str, body: str) -> None:
-    channel = _get_rabbit_channel()
-    channel.queue_declare(queue=queue, durable=True)
-    channel.basic_publish(
-        exchange="",
-        routing_key=queue,
-        body=body,
-        properties=pika.BasicProperties(delivery_mode=2),
+class PublishTask(NamedTuple):
+    queue: str
+    body: str
+    retry_count: int = 0
+
+_publish_queue: queue.Queue[PublishTask] = queue.Queue()
+_report_thread: threading.Thread | None = None
+_report_lock = threading.Lock()
+
+def rabbitmq_worker():
+    """Background worker to handle RabbitMQ connection and publishing."""
+    connection = None
+    channel = None
+    credentials = pika.PlainCredentials(RABBITMQ_USER, RABBITMQ_PASS)
+    parameters = pika.ConnectionParameters(
+        host=RABBITMQ_HOST,
+        port=RABBITMQ_PORT,
+        virtual_host=RABBITMQ_VHOST,
+        credentials=credentials,
+        heartbeat=60,
+        blocked_connection_timeout=30,
     )
 
+    while True:
+        try:
+            if connection is None or connection.is_closed:
+                logger.info("Connecting to RabbitMQ...")
+                connection = pika.BlockingConnection(parameters)
+                channel = connection.channel()
+                logger.info("RabbitMQ connection established")
 
-def xml_escape(value: str) -> str:
-    return (
-        value.replace("&", "&amp;")
-        .replace("<", "&lt;")
-        .replace(">", "&gt;")
-        .replace('"', "&quot;")
-        .replace("'", "&apos;")
-    )
+            task = _publish_queue.get()
+            try:
+                channel.queue_declare(queue=task.queue, durable=True)
+                channel.basic_publish(
+                    exchange="",
+                    routing_key=task.queue,
+                    body=task.body,
+                    properties=pika.BasicProperties(delivery_mode=2),
+                )
+                logger.debug("Published message to %s", task.queue)
+            except Exception as exc:
+                if task.retry_count < MAX_PUBLISH_RETRIES:
+                    delay = min(2 ** task.retry_count, 30)
+                    logger.warning(
+                        "Failed to publish message (attempt %d/%d), retrying in %ds: %s",
+                        task.retry_count + 1, MAX_PUBLISH_RETRIES, delay, exc,
+                    )
+                    if connection and not connection.is_closed:
+                        connection.close()
+                    connection = None
+                    time.sleep(delay)
+                    _publish_queue.put(task._replace(retry_count=task.retry_count + 1))
+                else:
+                    logger.error(
+                        "Dropping message to queue '%s' after %d failed attempts: %s",
+                        task.queue, MAX_PUBLISH_RETRIES, exc,
+                    )
+            finally:
+                _publish_queue.task_done()
+
+        except Exception as exc:
+            logger.error("RabbitMQ worker error: %s", exc)
+            time.sleep(5) # Backoff
+
+def publish(queue_name: str, body: str) -> None:
+    _publish_queue.put(PublishTask(queue_name, body))
+
+# Remove old _get_rabbit_channel and threading.local logic
+
+
+def send_alert_xml(system_name: str) -> None:
+    timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    
+    alert_el = ET.Element("alert")
+    ET.SubElement(alert_el, "type").text = "HEARTBEAT_CRITICAL"
+    ET.SubElement(alert_el, "system").text = system_name
+    ET.SubElement(alert_el, "message").text = f"Systeem {system_name} heeft al meer dan {THRESHOLD_SECONDS}s geen heartbeat gestuurd."
+    ET.SubElement(alert_el, "timestamp").text = timestamp
+    
+    xml_payload = ET.tostring(alert_el, encoding="unicode", xml_declaration=True)
+    publish(ALERTS_QUEUE, xml_payload)
+    logger.info("Alert published for %s", system_name)
+
+
+def send_log_xml(level: str, action: str, message: str, source: str = "monitoring") -> None:
+    timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    
+    message_el = ET.Element("message")
+    header_el = ET.SubElement(message_el, "header")
+    ET.SubElement(header_el, "message_id").text = str(uuid.uuid4())
+    ET.SubElement(header_el, "timestamp").text = timestamp
+    ET.SubElement(header_el, "source").text = source
+    ET.SubElement(header_el, "type").text = "log"
+    ET.SubElement(header_el, "version").text = "2.0"
+    
+    body_el = ET.SubElement(message_el, "body")
+    ET.SubElement(body_el, "level").text = level
+    ET.SubElement(body_el, "action").text = action
+    ET.SubElement(body_el, "message").text = message
+    
+    xml_payload = ET.tostring(message_el, encoding="unicode", xml_declaration=True)
+    publish("logs", xml_payload)
+    logger.info("System log published: %s / %s", level, action)
 
 
 def parse_recipients(raw: str) -> list[dict[str, str]]:
@@ -141,40 +203,6 @@ def parse_recipients(raw: str) -> list[dict[str, str]]:
             }
         )
     return recipients
-
-
-def send_alert_xml(system_name: str) -> None:
-    timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    xml_payload = f"""<?xml version=\"1.0\" encoding=\"UTF-8\"?>
-<alert>
-  <type>HEARTBEAT_CRITICAL</type>
-  <system>{xml_escape(system_name)}</system>
-  <message>Systeem {xml_escape(system_name)} heeft al meer dan {THRESHOLD_SECONDS}s geen heartbeat gestuurd.</message>
-  <timestamp>{timestamp}</timestamp>
-</alert>"""
-    publish("to_mailing", xml_payload)
-    logger.info("Alert published for %s", system_name)
-
-
-def send_log_xml(level: str, action: str, message: str, source: str = "monitoring") -> None:
-    timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    xml_payload = f"""<?xml version=\"1.0\" encoding=\"UTF-8\"?>
-<message>
-  <header>
-    <message_id>{uuid.uuid4()}</message_id>
-    <timestamp>{timestamp}</timestamp>
-    <source>{xml_escape(source)}</source>
-    <type>log</type>
-    <version>2.0</version>
-  </header>
-  <body>
-    <level>{xml_escape(level)}</level>
-    <action>{xml_escape(action)}</action>
-    <message>{xml_escape(message)}</message>
-  </body>
-</message>"""
-    publish("logs", xml_payload)
-    logger.info("System log published: %s / %s", level, action)
 
 
 def build_send_mailing_xml(
@@ -585,8 +613,19 @@ def main() -> None:
     parser.add_argument("--run-report", action="store_true", help="Generate the daily report once and exit")
     args = parser.parse_args()
 
+    # Start RabbitMQ background worker
+    threading.Thread(target=rabbitmq_worker, daemon=True, name="RabbitMQWorker").start()
+
     if args.run_report:
         generate_daily_report()
+        flush_timeout = 30
+        joiner = threading.Thread(target=_publish_queue.join, daemon=True)
+        joiner.start()
+        joiner.join(timeout=flush_timeout)
+        if joiner.is_alive():
+            logger.warning(
+                "Publish queue did not flush within %ds; exiting anyway", flush_timeout
+            )
         return
 
     next_report_date = None
@@ -630,19 +669,6 @@ def main() -> None:
 
         except Exception:
             logger.exception("Error in detector")
-
-        rabbit_conn = getattr(_thread_local, "rabbit_conn", None)
-        if rabbit_conn is not None and rabbit_conn.is_open:
-            try:
-                rabbit_conn.process_data_events(time_limit=0)
-            except pika.exceptions.AMQPError as exc:
-                logger.warning("RabbitMQ maintenance failed: %s", exc)
-                try:
-                    rabbit_conn.close()
-                except Exception:
-                    pass
-                _thread_local.rabbit_conn = None
-                _thread_local.rabbit_channel = None
 
         time.sleep(1)
 

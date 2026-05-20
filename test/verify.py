@@ -28,8 +28,8 @@ HEARTBEATS_QUARANTINE_INDEX = f"heartbeats-quarantine-{TODAY}"
 LOGS_INDEX = f"logs-{TODAY}"
 LOGS_QUARANTINE_INDEX = f"logs-quarantine-{TODAY}"
 
-EXPECTED_HEARTBEAT_SYSTEMS = ["planning", "crm", "kassa", "facturatie", "monitoring", "frontend", "mailing"]
-EXPECTED_LOG_SOURCES = ["planning", "crm", "kassa", "facturatie", "frontend", "mailing", "identity-service"]
+EXPECTED_HEARTBEAT_SYSTEMS = ["planning", "crm", "kassa", "facturatie", "monitoring", "frontend", "mailing", "iot_gateway"]
+EXPECTED_LOG_SOURCES = ["planning", "crm", "kassa", "facturatie", "frontend", "mailing", "identity-service", "iot_gateway"]
 
 
 def es_request(path: str) -> dict:

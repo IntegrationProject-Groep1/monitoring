@@ -25,8 +25,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     fonts-liberation \
     fontconfig \
  && rm -rf /var/lib/apt/lists/*
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-COPY detector.py .
-COPY templates ./templates
+COPY detector/requirements.txt requirements-detector.txt
+COPY integratie/requirements.txt requirements-mcp.txt
+RUN pip install --no-cache-dir -r requirements-detector.txt -r requirements-mcp.txt
+COPY detector/detector.py .
+COPY detector/templates ./templates
+COPY integratie/mcp_server.py .
 CMD ["python", "-u", "detector.py"]
