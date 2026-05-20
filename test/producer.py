@@ -29,7 +29,7 @@ RABBITMQ_PASS = os.environ["RABBITMQMONITORING_PASS"]
 HEARTBEAT_QUEUE = "heartbeat"
 LOGS_QUEUE = "logs"
 
-HEARTBEAT_SOURCES = ["planning", "crm", "kassa", "facturatie", "monitoring", "frontend", "mailing", "iot_gateway"]
+HEARTBEAT_SOURCES = ["planning", "crm", "kassa", "facturatie", "monitoring", "frontend", "mailing", "iot_gateway", "chatbot"]
 LOG_SOURCES = ["planning", "crm", "kassa", "facturatie", "frontend", "mailing", "identity-service", "iot_gateway"]
 
 
