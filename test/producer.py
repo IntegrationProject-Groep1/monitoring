@@ -7,8 +7,7 @@ all code paths in the Logstash pipeline (per contract v2.3):
     (unknown system, unknown status, missing uptime, identity-service which
     is not in the heartbeat whitelist, malformed XML).
   - logs: one valid info per log source + unknown_action soft-tag, plus
-    edge cases (unknown level, wrong type, unsupported version, monitoring
-    source which is not in the log whitelist, malformed XML).
+    edge cases (unknown level, wrong type, unsupported version, malformed XML).
 
 Exits 0 if all messages are published successfully, non-zero on any error.
 """
@@ -30,7 +29,7 @@ HEARTBEAT_QUEUE = "heartbeat"
 LOGS_QUEUE = "logs"
 
 HEARTBEAT_SOURCES = ["planning", "crm", "kassa", "facturatie", "monitoring", "frontend", "mailing", "iot_gateway"]
-LOG_SOURCES = ["planning", "crm", "kassa", "facturatie", "frontend", "mailing", "identity-service", "iot_gateway"]
+LOG_SOURCES = ["planning", "crm", "kassa", "facturatie", "frontend", "mailing", "monitoring", "identity-service", "iot_gateway"]
 
 
 def _envelope(source: str, msg_type: str, version: str = "2.0") -> tuple[ET.Element, ET.Element, ET.Element]:
@@ -151,15 +150,9 @@ def send_logs() -> int:
         build_log("crm", "info", "user", "Old contract version", version="1.0"),
         "version=1.0 (unsupported_contract_version)",
     )
-    publish(
-        channel,
-        LOGS_QUEUE,
-        build_log("monitoring", "info", "user", "Monitoring should not log to itself"),
-        "source=monitoring (unknown_system for logs)",
-    )
     publish(channel, LOGS_QUEUE, "this is not valid xml <<<", "invalid XML")
 
-    sent = len(LOG_SOURCES) + 6
+    sent = len(LOG_SOURCES) + 5
     connection.close()
     return sent
 
