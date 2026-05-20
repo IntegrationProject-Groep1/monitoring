@@ -7,7 +7,8 @@ all code paths in the Logstash pipeline (per contract v2.3):
     (unknown system, unknown status, missing uptime, identity-service which
     is not in the heartbeat whitelist, malformed XML).
   - logs: one valid info per log source + unknown_action soft-tag, plus
-    edge cases (unknown level, wrong type, unsupported version, malformed XML).
+    edge cases (unknown level, wrong type, unsupported version, monitoring
+    source which is not in the log whitelist, malformed XML).
 
 Exits 0 if all messages are published successfully, non-zero on any error.
 """
@@ -150,9 +151,15 @@ def send_logs() -> int:
         build_log("crm", "info", "user", "Old contract version", version="1.0"),
         "version=1.0 (unsupported_contract_version)",
     )
+    publish(
+        channel,
+        LOGS_QUEUE,
+        build_log("monitoring", "info", "user", "Monitoring should not log to itself"),
+        "source=monitoring (unknown_system for logs)",
+    )
     publish(channel, LOGS_QUEUE, "this is not valid xml <<<", "invalid XML")
 
-    sent = len(LOG_SOURCES) + 5
+    sent = len(LOG_SOURCES) + 6
     connection.close()
     return sent
 

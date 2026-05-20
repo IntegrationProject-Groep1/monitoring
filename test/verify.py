@@ -29,7 +29,7 @@ LOGS_INDEX = f"logs-{TODAY}"
 LOGS_QUARANTINE_INDEX = f"logs-quarantine-{TODAY}"
 
 EXPECTED_HEARTBEAT_SYSTEMS = ["planning", "crm", "kassa", "facturatie", "monitoring", "frontend", "mailing", "iot_gateway", "chatbot"]
-EXPECTED_LOG_SOURCES = ["planning", "crm", "kassa", "facturatie", "frontend", "mailing", "monitoring", "identity-service", "iot_gateway"]
+EXPECTED_LOG_SOURCES = ["planning", "crm", "kassa", "facturatie", "frontend", "mailing", "identity-service", "iot_gateway"]
 
 
 def es_request(path: str) -> dict:
@@ -108,10 +108,10 @@ def main() -> None:
     if not check_field_values(LOGS_INDEX, "system", EXPECTED_LOG_SOURCES, "sources"):
         failures.append("Not all expected sources found in logs index")
 
-    print(f"\nChecking logs quarantine index ({LOGS_QUARANTINE_INDEX}) — expecting >= 4 docs:")
-    q_count = wait_for_documents(LOGS_QUARANTINE_INDEX, 4)
-    if q_count < 4:
-        failures.append(f"{LOGS_QUARANTINE_INDEX} has {q_count} docs, expected >= 4")
+    print(f"\nChecking logs quarantine index ({LOGS_QUARANTINE_INDEX}) — expecting >= 5 docs:")
+    q_count = wait_for_documents(LOGS_QUARANTINE_INDEX, 5)
+    if q_count < 5:
+        failures.append(f"{LOGS_QUARANTINE_INDEX} has {q_count} docs, expected >= 5")
     else:
         print(f"  OK: {q_count} documents found")
 
