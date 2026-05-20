@@ -39,6 +39,8 @@ services:
       - RABBITMQMONITORING_USER=${RABBITMQMONITORING_USER}
       - RABBITMQMONITORING_PASS=${RABBITMQMONITORING_PASS}
       - RABBITMQ_VHOST=${RABBITMQ_VHOST}
+    ports:
+      - "127.0.0.1:9600:9600"
     volumes:
       - ./monitoring_elk/logstash/pipeline:/usr/share/logstash/pipeline
     networks:
