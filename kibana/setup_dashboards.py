@@ -34,6 +34,7 @@ AUTH = (KIBANA_USER, KIBANA_PASS)
 DASH_ID_HEARTBEATS = "shift-mcp-heartbeats-dashboard"
 DASH_ID_LOGS       = "shift-service-logs-dashboard"
 DASH_ID_MCP        = "shift-mcp-servers-dashboard"
+DASH_ID_MCP_ALIAS  = "mcp-dashboards"
 DV_HEARTBEATS      = "shift-heartbeats-dv"
 DV_LOGS            = "shift-logs-dv"
 
@@ -350,7 +351,7 @@ def create_heartbeat_dashboard() -> None:
 
 def create_mcp_dashboard() -> None:
     print("\n── Dedicated MCP servers dashboard ────────────────────")
-    MCP_KQL = 'system.keyword: "*-mcp"'
+    MCP_KQL = "system.keyword: *-mcp"
 
     # KPIs (heartbeats-*)
     _vis("vis-mcp-active",    "Active MCP servers",
@@ -377,47 +378,34 @@ def create_mcp_dashboard() -> None:
     _vis("vis-mcp-hb-rate", "MCP heartbeat volume per server",
          _vs_hb_rate_bar("MCP heartbeat volume per server"), DV_HEARTBEATS, MCP_KQL)
 
-    # Logs (logs-*)
-    _vis("vis-mcp-log-count", "MCP log count by server & level",
-         _vs_log_count_bar("MCP log count by server & level"), DV_LOGS, MCP_KQL)
-    _vis("vis-mcp-log-errors", "MCP error count",
-         _vs_count_metric("MCP error count"), DV_LOGS, f"({MCP_KQL}) AND level.keyword: error")
-    _vis("vis-mcp-log-table", "MCP recent log entries",
-         _vs_log_table("MCP recent log entries"), DV_LOGS, MCP_KQL)
-
     # Layout (48-wide grid):
-    # Row 0  h=8 : [active: 8] [total hb: 8] [errors: 8] [pie: 24]
+    # Row 0  h=8 : [active: 12] [total hb: 12] [pie: 24]
     # Row 8  h=16: [timeseries: 48]
     # Row 24 h=18: [status+uptime table: 24] [uptime bar: 24]
-    # Row 42 h=16: [hb rate bar: 24] [log count bar: 24]
-    # Row 58 h=18: [log table: 48]
+    # Row 42 h=16: [hb rate bar: 48]
     panels = [
-        _panel("vis-mcp-active",       0,  0,  8,  8, "m1"),
-        _panel("vis-mcp-hb-total",     8,  0,  8,  8, "m2"),
-        _panel("vis-mcp-log-errors",   16, 0,  8,  8, "m3"),
+        _panel("vis-mcp-active",       0,  0, 12,  8, "m1"),
+        _panel("vis-mcp-hb-total",     12, 0, 12,  8, "m2"),
         _panel("vis-mcp-hb-pie",       24, 0, 24,  8, "m4"),
         _panel("vis-mcp-timeseries",   0,  8, 48, 16, "m5"),
         _panel("vis-mcp-status-table", 0,  24, 24, 18, "m6"),
         _panel("vis-mcp-uptime-bar",   24, 24, 24, 18, "m7"),
-        _panel("vis-mcp-hb-rate",      0,  42, 24, 16, "m8"),
-        _panel("vis-mcp-log-count",    24, 42, 24, 16, "m9"),
-        _panel("vis-mcp-log-table",    0,  58, 48, 18, "m10"),
+        _panel("vis-mcp-hb-rate",      0,  42, 48, 16, "m8"),
     ]
     refs = [
-        # heartbeat vis refs
         {"type": "visualization", "id": "vis-mcp-active",       "name": "panel_m1"},
         {"type": "visualization", "id": "vis-mcp-hb-total",     "name": "panel_m2"},
-        {"type": "visualization", "id": "vis-mcp-log-errors",   "name": "panel_m3"},
         {"type": "visualization", "id": "vis-mcp-hb-pie",       "name": "panel_m4"},
         {"type": "visualization", "id": "vis-mcp-timeseries",   "name": "panel_m5"},
         {"type": "visualization", "id": "vis-mcp-status-table", "name": "panel_m6"},
         {"type": "visualization", "id": "vis-mcp-uptime-bar",   "name": "panel_m7"},
         {"type": "visualization", "id": "vis-mcp-hb-rate",      "name": "panel_m8"},
-        {"type": "visualization", "id": "vis-mcp-log-count",    "name": "panel_m9"},
-        {"type": "visualization", "id": "vis-mcp-log-table",    "name": "panel_m10"},
     ]
-    _dashboard(DASH_ID_MCP, "MCP Servers — Live Monitor",
-               "Dedicated dashboard: heartbeat health, uptime, and logs for all 5 MCP servers",
+    _dashboard(DASH_ID_MCP, "MCP Dashboards",
+               "Dedicated dashboard: heartbeat health, uptime, and status for all MCP servers",
+               panels, refs, DV_HEARTBEATS, refresh_ms=10000)
+    _dashboard(DASH_ID_MCP_ALIAS, "MCP Dashboards",
+               "Dedicated dashboard: heartbeat health, uptime, and status for all MCP servers",
                panels, refs, DV_HEARTBEATS, refresh_ms=10000)
 
 
@@ -455,5 +443,6 @@ if __name__ == "__main__":
 Done. Dashboard URLs:
   All Services Heartbeats : {KIBANA_URL}/app/dashboards#/view/{DASH_ID_HEARTBEATS}
   MCP Servers (dedicated) : {KIBANA_URL}/app/dashboards#/view/{DASH_ID_MCP}
+  MCP Dashboards          : {KIBANA_URL}/app/dashboards#/view/{DASH_ID_MCP_ALIAS}
   Service Logs            : {KIBANA_URL}/app/dashboards#/view/{DASH_ID_LOGS}
 """, flush=True)
