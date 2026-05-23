@@ -31,6 +31,9 @@ jobs:
             RABBITMQ_VHOST=/
         run: echo "$ENV_CONTENT" > monitoring_elk/.env
 
+      - name: Mirror env file for docker compose service env_file lookups
+        run: cp monitoring_elk/.env .env
+
       - name: Validate docker-compose syntax
         run: |
           docker compose --env-file monitoring_elk/.env \
@@ -68,6 +71,9 @@ jobs:
             RABBITMQMONITORING_PASS=monitoring_test_pass
             RABBITMQ_VHOST=/
         run: echo "$ENV_CONTENT" > monitoring_elk/.env
+
+      - name: Mirror env file for docker compose service env_file lookups
+        run: cp monitoring_elk/.env .env
 
       - name: Start stack (RabbitMQ + ELK + detector)
         run: |
