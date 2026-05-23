@@ -148,7 +148,34 @@ def rabbitmq_worker():
 def publish(queue_name: str, body: str) -> None:
     _publish_queue.put(PublishTask(queue_name, body))
 
-# Remove old _get_rabbit_channel and threading.local logic
+
+def publish_now(queue_name: str, body: str) -> None:
+    """Publish synchronously to RabbitMQ.
+
+    Used for CI one-shot modes (alerts + --run-report) to avoid timing/race
+    issues with the background worker.
+    """
+    credentials = pika.PlainCredentials(RABBITMQ_USER, RABBITMQ_PASS)
+    parameters = pika.ConnectionParameters(
+        host=RABBITMQ_HOST,
+        port=RABBITMQ_PORT,
+        virtual_host=RABBITMQ_VHOST,
+        credentials=credentials,
+        heartbeat=60,
+        blocked_connection_timeout=30,
+    )
+    connection = pika.BlockingConnection(parameters)
+    try:
+        channel = connection.channel()
+        channel.queue_declare(queue=queue_name, durable=True)
+        channel.basic_publish(
+            exchange="",
+            routing_key=queue_name,
+            body=body,
+            properties=pika.BasicProperties(delivery_mode=2),
+        )
+    finally:
+        connection.close()
 
 
 def send_alert_xml(system_name: str) -> None:
@@ -161,7 +188,7 @@ def send_alert_xml(system_name: str) -> None:
     ET.SubElement(alert_el, "timestamp").text = timestamp
     
     xml_payload = ET.tostring(alert_el, encoding="unicode", xml_declaration=True)
-    publish(ALERTS_QUEUE, xml_payload)
+    publish_now(ALERTS_QUEUE, xml_payload)
     logger.info("Alert published for %s", system_name)
 
 
@@ -255,7 +282,7 @@ def build_send_mailing_xml(
 def send_report_message(report_date: str, attachment: dict | None, template_data: dict) -> None:
     subject = f"Daily Platform Report — {report_date}"
     xml_payload = build_send_mailing_xml(report_date, subject, template_data, attachment)
-    publish(REPORT_QUEUE, xml_payload)
+    publish_now(REPORT_QUEUE, xml_payload)
     logger.info("Daily report message published to %s", REPORT_QUEUE)
 
 

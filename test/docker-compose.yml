@@ -50,7 +50,7 @@ services:
       - "127.0.0.1:9600:9600"
     volumes:
       - ../monitoring_elk/logstash/pipeline:/usr/share/logstash/pipeline
-      - ./logstash/config/logstash.yml:/usr/share/logstash/config/logstash.yml:rw
+      - ./test/logstash/config/logstash.yml:/usr/share/logstash/config/logstash.yml:rw
     networks:
       - elk-net
     depends_on:
