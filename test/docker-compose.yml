@@ -2,6 +2,11 @@ services:
   elasticsearch:
     image: docker.elastic.co/elasticsearch/elasticsearch:8.17.0
     container_name: elasticsearch-test
+    hostname: elasticsearch-test
+    extra_hosts:
+      - "elasticsearch-test:127.0.0.1"
+    env_file:
+      - .env
     restart: unless-stopped
     environment:
       - discovery.type=single-node
@@ -28,6 +33,8 @@ services:
   logstash:
     image: docker.elastic.co/logstash/logstash:8.17.0
     container_name: logstash-test
+    env_file:
+      - .env
     restart: unless-stopped
     environment:
       - xpack.monitoring.enabled=false
@@ -42,7 +49,8 @@ services:
     ports:
       - "127.0.0.1:9600:9600"
     volumes:
-      - ./monitoring_elk/logstash/pipeline:/usr/share/logstash/pipeline
+      - ../monitoring_elk/logstash/pipeline:/usr/share/logstash/pipeline
+      - ./logstash/config/logstash.yml:/usr/share/logstash/config/logstash.yml:rw
     networks:
       - elk-net
     depends_on:
@@ -52,6 +60,8 @@ services:
   rabbitmq:
     image: rabbitmq:3.13-management
     container_name: rabbitmq-test
+    env_file:
+      - .env
     environment:
       - RABBITMQ_DEFAULT_USER=${RABBITMQMONITORING_USER}
       - RABBITMQ_DEFAULT_PASS=${RABBITMQMONITORING_PASS}
@@ -71,6 +81,8 @@ services:
   detector-service:
     image: monitoring/detector:latest
     container_name: detector-service-test
+    env_file:
+      - .env
     environment:
       - ES_HOST=http://elasticsearch:9200
       - ES_ADMIN_USER=${ES_ADMIN_USER}

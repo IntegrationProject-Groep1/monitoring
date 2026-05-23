@@ -19,8 +19,24 @@ import time
 import uuid
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
+from pathlib import Path
 
 import pika
+
+
+def load_env_file(path: Path) -> None:
+    if not path.exists():
+        return
+
+    for raw_line in path.read_text().splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
+
+
+load_env_file(Path(__file__).resolve().parents[1] / "monitoring_elk" / ".env")
 
 RABBITMQ_HOST = os.environ.get("RABBITMQ_HOST", "localhost")
 RABBITMQ_PORT = int(os.environ.get("RABBITMQ_PORT", "5672"))
@@ -154,8 +170,8 @@ def send_logs() -> int:
     publish(
         channel,
         LOGS_QUEUE,
-        build_log("monitoring", "info", "user", "Monitoring should not log to itself"),
-        "source=monitoring (unknown_system for logs)",
+        build_log("unknown-team", "info", "user", "Unknown log source"),
+        "source=unknown-team (unknown_system for logs)",
     )
     publish(channel, LOGS_QUEUE, "this is not valid xml <<<", "invalid XML")
 
