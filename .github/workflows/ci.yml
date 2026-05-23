@@ -31,9 +31,6 @@ jobs:
             RABBITMQ_VHOST=/
         run: echo "$ENV_CONTENT" > monitoring_elk/.env
 
-      - name: Mirror env file for docker compose service env_file lookups
-        run: cp monitoring_elk/.env .env
-
       - name: Validate docker-compose syntax
         run: |
           docker compose --env-file monitoring_elk/.env \
@@ -72,23 +69,12 @@ jobs:
             RABBITMQ_VHOST=/
         run: echo "$ENV_CONTENT" > monitoring_elk/.env
 
-      - name: Mirror env file for docker compose service env_file lookups
-        run: cp monitoring_elk/.env .env
-
       - name: Start stack (RabbitMQ + ELK + detector)
         run: |
           docker compose --env-file monitoring_elk/.env \
             -f docker-compose.yml -f test/docker-compose.yml \
             up -d --wait --wait-timeout 90 \
             rabbitmq elasticsearch logstash detector-service
-
-      - name: Fix permissions for Logstash config (test compose bind mounts)
-        run: |
-          # Some CI runners enforce stricter file permissions on bind mounts; Logstash may fail with:
-          # "error: open /usr/share/logstash/config/logstash.yml: permission denied"
-          docker compose --env-file monitoring_elk/.env -f test/docker-compose.yml exec -T logstash \
-            sh -c 'chmod 644 /usr/share/logstash/config/logstash.yml || true'
-
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -104,45 +90,18 @@ jobs:
       - name: Wait for Logstash API
         run: |
           set -euo pipefail
-
-          # 1) Wait for the HTTP endpoint to respond.
-          # Note: Logstash is exposed on host port 9600 (docker-compose maps 127.0.0.1:9600:9600).
-          # In GitHub Actions, localhost networking is stable, but the container may take longer than expected.
           for i in $(seq 1 48); do
-            if curl -sSf http://localhost:9600/ -o /dev/null; then
-              echo "Logstash API HTTP endpoint is responding"
-              break
+            if curl -sSf http://localhost:9600/_node/pipelines | grep -q '"main"'; then
+              echo "Logstash main pipeline is ready"
+              exit 0
             fi
-            echo "Waiting for Logstash API HTTP endpoint... ($i/48)"
+            echo "Waiting for Logstash main pipeline... ($i/48)"
             sleep 3
           done
-
-          # 2) Then wait for at least one pipeline to be loaded.
-          # Pipeline id/name is not guaranteed to be literally "main" across versions/timing.
-          for i in $(seq 1 60); do
-            # Pipelines object presence is usually enough to proceed.
-            if curl -sSf http://localhost:9600/_node/pipelines | grep -q '"pipelines"'; then
-              echo "Logstash pipelines object is present"
-              exit 0
-            fi
-
-            # Fallback: check for any pipeline key-like structure.
-            if curl -sSf http://localhost:9600/_node/pipelines | grep -Eq '"[^"]+"\s*:\s*\{'; then
-              echo "Logstash pipeline(s) loaded"
-              exit 0
-            fi
-
-            echo "Waiting for Logstash pipelines to load... ($i/60)"
-            sleep 2
-          done
-
-          echo "Logstash pipelines did not become ready in time" >&2
+          echo "Logstash main pipeline did not become ready in time" >&2
           docker compose --env-file monitoring_elk/.env -f docker-compose.yml -f test/docker-compose.yml ps
           docker compose --env-file monitoring_elk/.env -f docker-compose.yml -f test/docker-compose.yml logs --no-color logstash || true
           exit 1
-
-
-
 
       - name: Send test heartbeats and platform logs
         run: python3 test/producer.py

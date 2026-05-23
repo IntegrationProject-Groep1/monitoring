@@ -17,7 +17,6 @@ from elasticsearch import Elasticsearch, NotFoundError
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from weasyprint import HTML
 
-# ... (Configuraties remains the same until ES_HOST)
 ES_HOST = os.getenv("ES_HOST", "http://elasticsearch:9200")
 ES_USER = os.getenv("ES_ADMIN_USER", "elastic")
 ES_PASS = os.getenv("ES_ADMIN_PASS")
