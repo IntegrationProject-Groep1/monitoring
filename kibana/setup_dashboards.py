@@ -33,6 +33,7 @@ AUTH = (KIBANA_USER, KIBANA_PASS)
 # Fixed IDs so the chatbot can deep-link to these dashboards
 DASH_ID_HEARTBEATS = "shift-mcp-heartbeats-dashboard"
 DASH_ID_LOGS       = "shift-service-logs-dashboard"
+DASH_ID_MCP        = "shift-mcp-servers-dashboard"
 DV_HEARTBEATS      = "shift-heartbeats-dv"
 DV_LOGS            = "shift-logs-dv"
 
@@ -75,202 +76,23 @@ def upsert(obj_type: str, obj_id: str, attributes: dict) -> None:
         print(f"  ✗ {obj_type}/{obj_id}: {r.status_code} {r.text[:120]}", flush=True)
 
 
-def create_data_views() -> None:
-    print("\n── Data views ─────────────────────────────────────────")
-    upsert("index-pattern", DV_HEARTBEATS, {
-        "title": "heartbeats-*",
-        "timeFieldName": "@timestamp",
-        "fields": "[]",
-    })
-    upsert("index-pattern", DV_LOGS, {
-        "title": "logs-*",
-        "timeFieldName": "@timestamp",
-        "fields": "[]",
-    })
-
-
-def _vis_state_heartbeat_timeseries() -> str:
-    """TSVB: heartbeats per minute, split by system."""
+def _search_source(dv_id: str, kql: str = "") -> str:
     return json.dumps({
-        "title": "Heartbeats per minute by system",
-        "type": "metrics",
-        "aggs": [],
-        "params": {
-            "type": "timeseries",
-            "index_pattern": DV_HEARTBEATS,
-            "time_range_mode": "auto",
-            "interval": "1m",
-            "axis_min": "0",
-            "series": [
-                {
-                    "id": "series-hb-all",
-                    "label": "Heartbeats/min",
-                    "metrics": [{"id": "metric-1", "type": "count"}],
-                    "split_mode": "terms",
-                    "terms_field": "system.keyword",
-                    "terms_size": 20,
-                    "line_width": "1",
-                    "point_size": "1",
-                    "fill": "0.3",
-                    "stacked": "none",
-                }
-            ],
-        },
+        "query": {"language": "kuery", "query": kql},
+        "filter": [],
+        "indexRefName": "kibanaSavedObjectMeta.searchSourceJSON.index",
     })
 
 
-def _vis_state_active_systems() -> str:
-    """Metric: unique active systems in last 5 min."""
-    return json.dumps({
-        "title": "Active systems",
-        "type": "metric",
-        "aggs": [
-            {
-                "id": "1",
-                "type": "cardinality",
-                "schema": "metric",
-                "params": {"field": "system.keyword"},
-            }
-        ],
-        "params": {
-            "addLegend": False,
-            "addTooltip": True,
-            "metric": {"colorSchema": "Green to Red", "useRanges": False},
-        },
-    })
-
-
-def _vis_state_status_table() -> str:
-    """Data table: last heartbeat per system with status."""
-    return json.dumps({
-        "title": "Latest heartbeat per system",
-        "type": "table",
-        "aggs": [
-            {
-                "id": "1",
-                "type": "terms",
-                "schema": "bucket",
-                "params": {"field": "system.keyword", "size": 30, "order": "asc"},
-            },
-            {
-                "id": "2",
-                "type": "terms",
-                "schema": "metric",
-                "params": {"field": "status.keyword", "size": 1, "order": "desc"},
-            },
-            {
-                "id": "3",
-                "type": "max",
-                "schema": "metric",
-                "params": {"field": "@timestamp"},
-            },
-        ],
-        "params": {
-            "showTotal": False,
-            "sort": {"columnIndex": None, "direction": None},
-            "totalFunc": "sum",
-        },
-    })
-
-
-def _vis_state_mcp_table() -> str:
-    """Data table: MCP-only heartbeats."""
-    return json.dumps({
-        "title": "MCP server heartbeats",
-        "type": "table",
-        "aggs": [
-            {
-                "id": "1",
-                "type": "terms",
-                "schema": "bucket",
-                "params": {
-                    "field": "system.keyword",
-                    "size": 10,
-                    "order": "asc",
-                    "include": ".*-mcp",
-                },
-            },
-            {
-                "id": "2",
-                "type": "terms",
-                "schema": "metric",
-                "params": {"field": "status.keyword", "size": 1, "order": "desc"},
-            },
-            {
-                "id": "3",
-                "type": "max",
-                "schema": "metric",
-                "params": {"field": "uptime_seconds"},
-            },
-        ],
-        "params": {"showTotal": False},
-    })
-
-
-def _vis_state_log_count() -> str:
-    """Bar: log count by service + level."""
-    return json.dumps({
-        "title": "Log count by service & level",
-        "type": "histogram",
-        "aggs": [
-            {
-                "id": "1",
-                "type": "count",
-                "schema": "metric",
-                "params": {},
-            },
-            {
-                "id": "2",
-                "type": "terms",
-                "schema": "segment",
-                "params": {"field": "system.keyword", "size": 20, "order": "desc"},
-            },
-            {
-                "id": "3",
-                "type": "terms",
-                "schema": "group",
-                "params": {"field": "level.keyword", "size": 3},
-            },
-        ],
-        "params": {
-            "addLegend": True,
-            "addTimeMarker": False,
-            "addTooltip": True,
-            "categoryAxes": [{"position": "bottom", "scale": {"type": "linear"}}],
-            "mode": "stacked",
-            "scale": "linear",
-        },
-    })
-
-
-def _vis_state_log_table() -> str:
-    """Table: recent log entries."""
-    return json.dumps({
-        "title": "Recent log entries",
-        "type": "table",
-        "aggs": [
-            {"id": "1", "type": "count", "schema": "metric", "params": {}},
-            {"id": "2", "type": "terms", "schema": "bucket", "params": {"field": "system.keyword", "size": 20}},
-            {"id": "3", "type": "terms", "schema": "bucket", "params": {"field": "level.keyword", "size": 3}},
-            {"id": "4", "type": "terms", "schema": "bucket", "params": {"field": "action.keyword", "size": 10}},
-        ],
-        "params": {"showTotal": False},
-    })
-
-
-def _vis_common(vis_id: str, title: str, vis_state_fn, dv_id: str) -> None:
+def _vis(vis_id: str, title: str, vis_state: dict, dv_id: str, kql: str = "") -> None:
     upsert("visualization", vis_id, {
         "title": title,
-        "visState": vis_state_fn(),
+        "visState": json.dumps(vis_state),
         "uiStateJSON": "{}",
         "description": "",
         "savedSearchRefName": None,
         "kibanaSavedObjectMeta": {
-            "searchSourceJSON": json.dumps({
-                "query": {"language": "kuery", "query": ""},
-                "filter": [],
-                "indexRefName": "kibanaSavedObjectMeta.searchSourceJSON.index",
-            })
+            "searchSourceJSON": _search_source(dv_id, kql),
         },
     })
 
@@ -285,68 +107,333 @@ def _panel(vis_id: str, col: int, row: int, w: int, h: int, panel_id: str) -> di
     }
 
 
+def _dashboard(dash_id: str, title: str, description: str, panels: list,
+               refs_extra: list, dv_id: str, refresh_ms: int = 10000) -> None:
+    refs = [
+        {"type": "index-pattern", "id": dv_id,
+         "name": "kibanaSavedObjectMeta.searchSourceJSON.index"},
+    ] + refs_extra
+    upsert("dashboard", dash_id, {
+        "title": title,
+        "description": description,
+        "panelsJSON": json.dumps(panels),
+        "optionsJSON": json.dumps({"hidePanelTitles": False, "useMargins": True}),
+        "timeFrom": "now-1h",
+        "timeTo": "now",
+        "refreshInterval": {"pause": False, "value": refresh_ms},
+        "kibanaSavedObjectMeta": {
+            "searchSourceJSON": json.dumps({
+                "query": {"language": "kuery", "query": ""},
+                "filter": [],
+            })
+        },
+    })
+
+
+# ── Data views ─────────────────────────────────────────────────────────────────
+
+def create_data_views() -> None:
+    print("\n── Data views ─────────────────────────────────────────")
+    upsert("index-pattern", DV_HEARTBEATS, {
+        "title": "heartbeats-*",
+        "timeFieldName": "@timestamp",
+        "fields": "[]",
+    })
+    upsert("index-pattern", DV_LOGS, {
+        "title": "logs-*",
+        "timeFieldName": "@timestamp",
+        "fields": "[]",
+    })
+
+
+# ── Shared vis states ──────────────────────────────────────────────────────────
+
+def _vs_timeseries(title: str, index: str, split_size: int = 20) -> dict:
+    """TSVB: heartbeats per minute, optionally split by system."""
+    return {
+        "title": title,
+        "type": "metrics",
+        "aggs": [],
+        "params": {
+            "type": "timeseries",
+            "index_pattern": index,
+            "time_range_mode": "auto",
+            "interval": "1m",
+            "axis_min": "0",
+            "series": [{
+                "id": "series-1",
+                "label": "Heartbeats/min",
+                "metrics": [{"id": "m1", "type": "count"}],
+                "split_mode": "terms",
+                "terms_field": "system.keyword",
+                "terms_size": split_size,
+                "line_width": "2",
+                "point_size": "2",
+                "fill": "0.2",
+                "stacked": "none",
+            }],
+        },
+    }
+
+
+def _vs_cardinality_metric(title: str, field: str) -> dict:
+    return {
+        "title": title,
+        "type": "metric",
+        "aggs": [{
+            "id": "1", "type": "cardinality", "schema": "metric",
+            "params": {"field": field},
+        }],
+        "params": {
+            "addLegend": False,
+            "addTooltip": True,
+            "metric": {"colorSchema": "Green to Red", "useRanges": False},
+        },
+    }
+
+
+def _vs_count_metric(title: str) -> dict:
+    return {
+        "title": title,
+        "type": "metric",
+        "aggs": [{"id": "1", "type": "count", "schema": "metric", "params": {}}],
+        "params": {
+            "addLegend": False,
+            "addTooltip": True,
+            "metric": {"colorSchema": "Green to Red", "useRanges": False},
+        },
+    }
+
+
+def _vs_status_pie(title: str) -> dict:
+    return {
+        "title": title,
+        "type": "pie",
+        "aggs": [
+            {"id": "1", "type": "count", "schema": "metric", "params": {}},
+            {
+                "id": "2", "type": "terms", "schema": "segment",
+                "params": {"field": "status.keyword", "size": 5, "order": "desc"},
+            },
+        ],
+        "params": {
+            "addLegend": True,
+            "addTooltip": True,
+            "isDonut": True,
+            "legendPosition": "right",
+        },
+    }
+
+
+def _vs_status_table(title: str, include_pattern: str = None) -> dict:
+    """Table: system | latest status | last seen | uptime."""
+    bucket_params: dict = {"field": "system.keyword", "size": 30, "order": "asc"}
+    if include_pattern:
+        bucket_params["include"] = include_pattern
+    return {
+        "title": title,
+        "type": "table",
+        "aggs": [
+            {"id": "1", "type": "terms",     "schema": "bucket", "params": bucket_params},
+            {"id": "2", "type": "terms",     "schema": "metric", "params": {"field": "status.keyword", "size": 1, "order": "desc"}},
+            {"id": "3", "type": "max",       "schema": "metric", "params": {"field": "@timestamp"}},
+            {"id": "4", "type": "max",       "schema": "metric", "params": {"field": "uptime_seconds"}},
+        ],
+        "params": {"showTotal": False, "sort": {"columnIndex": None, "direction": None}, "totalFunc": "sum"},
+    }
+
+
+def _vs_uptime_bar(title: str) -> dict:
+    """Horizontal bar: max uptime per MCP server."""
+    return {
+        "title": title,
+        "type": "horizontal_bar",
+        "aggs": [
+            {"id": "1", "type": "max",   "schema": "metric", "params": {"field": "uptime_seconds"}},
+            {"id": "2", "type": "terms", "schema": "group",  "params": {"field": "system.keyword", "size": 10, "order": "desc"}},
+        ],
+        "params": {
+            "addLegend": True,
+            "addTooltip": True,
+            "addTimeMarker": False,
+            "categoryAxes": [{"position": "left", "scale": {"type": "linear"}}],
+        },
+    }
+
+
+def _vs_hb_rate_bar(title: str) -> dict:
+    """Bar: total heartbeat count per system (proxy for rate)."""
+    return {
+        "title": title,
+        "type": "histogram",
+        "aggs": [
+            {"id": "1", "type": "count", "schema": "metric", "params": {}},
+            {
+                "id": "2", "type": "terms", "schema": "segment",
+                "params": {"field": "system.keyword", "size": 10, "order": "desc"},
+            },
+        ],
+        "params": {
+            "addLegend": True,
+            "addTooltip": True,
+            "addTimeMarker": True,
+            "mode": "stacked",
+            "scale": "linear",
+            "categoryAxes": [{"position": "bottom", "scale": {"type": "linear"}}],
+        },
+    }
+
+
+def _vs_log_count_bar(title: str) -> dict:
+    return {
+        "title": title,
+        "type": "histogram",
+        "aggs": [
+            {"id": "1", "type": "count",  "schema": "metric",  "params": {}},
+            {"id": "2", "type": "terms",  "schema": "segment", "params": {"field": "system.keyword", "size": 20, "order": "desc"}},
+            {"id": "3", "type": "terms",  "schema": "group",   "params": {"field": "level.keyword",  "size": 3}},
+        ],
+        "params": {
+            "addLegend": True, "addTimeMarker": False, "addTooltip": True,
+            "mode": "stacked", "scale": "linear",
+            "categoryAxes": [{"position": "bottom", "scale": {"type": "linear"}}],
+        },
+    }
+
+
+def _vs_log_table(title: str) -> dict:
+    return {
+        "title": title,
+        "type": "table",
+        "aggs": [
+            {"id": "1", "type": "count", "schema": "metric",  "params": {}},
+            {"id": "2", "type": "terms", "schema": "bucket",  "params": {"field": "system.keyword", "size": 20}},
+            {"id": "3", "type": "terms", "schema": "bucket",  "params": {"field": "level.keyword",  "size": 3}},
+            {"id": "4", "type": "terms", "schema": "bucket",  "params": {"field": "action.keyword", "size": 10}},
+        ],
+        "params": {"showTotal": False},
+    }
+
+
+# ── Dashboard 1: All-services heartbeat overview ───────────────────────────────
+
 def create_heartbeat_dashboard() -> None:
-    print("\n── Heartbeats dashboard ────────────────────────────────")
-    _vis_common("vis-hb-timeseries",  "Heartbeats per minute", _vis_state_heartbeat_timeseries, DV_HEARTBEATS)
-    _vis_common("vis-hb-active",      "Active systems",         _vis_state_active_systems,       DV_HEARTBEATS)
-    _vis_common("vis-hb-status-table","Latest status per system",_vis_state_status_table,        DV_HEARTBEATS)
-    _vis_common("vis-hb-mcp-table",   "MCP server heartbeats",  _vis_state_mcp_table,            DV_HEARTBEATS)
+    print("\n── All-services heartbeat dashboard ────────────────────")
+    _vis("vis-hb-active",       "Active services",          _vs_cardinality_metric("Active services", "system.keyword"), DV_HEARTBEATS)
+    _vis("vis-hb-timeseries",   "Heartbeats/min by service", _vs_timeseries("Heartbeats/min by service", DV_HEARTBEATS), DV_HEARTBEATS)
+    _vis("vis-hb-status-table", "Latest status per service", _vs_status_table("Latest status per service"), DV_HEARTBEATS)
+    _vis("vis-hb-mcp-table",    "MCP server status",        _vs_status_table("MCP server status", ".*-mcp"), DV_HEARTBEATS)
 
     panels = [
-        _panel("vis-hb-active",       0,  0, 12, 8,  "p1"),
-        _panel("vis-hb-timeseries",   12, 0, 36, 15, "p2"),
+        _panel("vis-hb-active",       0,  0, 10, 8,  "p1"),
+        _panel("vis-hb-timeseries",   10, 0, 38, 16, "p2"),
         _panel("vis-hb-status-table", 0,  8, 24, 20, "p3"),
         _panel("vis-hb-mcp-table",    24, 8, 24, 20, "p4"),
     ]
     refs = [
-        {"type": "index-pattern", "id": DV_HEARTBEATS, "name": "kibanaSavedObjectMeta.searchSourceJSON.index"},
-        {"type": "visualization", "id": "vis-hb-active",        "name": "panel_p1"},
-        {"type": "visualization", "id": "vis-hb-timeseries",    "name": "panel_p2"},
-        {"type": "visualization", "id": "vis-hb-status-table",  "name": "panel_p3"},
-        {"type": "visualization", "id": "vis-hb-mcp-table",     "name": "panel_p4"},
+        {"type": "visualization", "id": "vis-hb-active",       "name": "panel_p1"},
+        {"type": "visualization", "id": "vis-hb-timeseries",   "name": "panel_p2"},
+        {"type": "visualization", "id": "vis-hb-status-table", "name": "panel_p3"},
+        {"type": "visualization", "id": "vis-hb-mcp-table",    "name": "panel_p4"},
     ]
-
-    upsert("dashboard", DASH_ID_HEARTBEATS, {
-        "title": "MCP & Heartbeat Monitor",
-        "description": "Live heartbeat status for all services and MCP servers",
-        "panelsJSON": json.dumps(panels),
-        "optionsJSON": json.dumps({"hidePanelTitles": False, "useMargins": True}),
-        "timeFrom": "now-1h",
-        "timeTo": "now",
-        "refreshInterval": {"pause": False, "value": 10000},
-        "kibanaSavedObjectMeta": {
-            "searchSourceJSON": json.dumps({"query": {"language": "kuery", "query": ""}, "filter": []})
-        },
-    })
+    _dashboard(DASH_ID_HEARTBEATS, "All Services — Heartbeat Monitor",
+               "Live heartbeat status for all services and MCP servers",
+               panels, refs, DV_HEARTBEATS, refresh_ms=10000)
 
 
-def create_logs_dashboard() -> None:
-    print("\n── Logs dashboard ──────────────────────────────────────")
-    _vis_common("vis-log-count", "Log count by service & level", _vis_state_log_count, DV_LOGS)
-    _vis_common("vis-log-table", "Recent log entries",           _vis_state_log_table, DV_LOGS)
+# ── Dashboard 2: Dedicated MCP servers ────────────────────────────────────────
 
+def create_mcp_dashboard() -> None:
+    print("\n── Dedicated MCP servers dashboard ────────────────────")
+    MCP_KQL = "system.keyword: *-mcp"
+
+    # KPIs (heartbeats-*)
+    _vis("vis-mcp-active",    "Active MCP servers",
+         _vs_cardinality_metric("Active MCP servers", "system.keyword"), DV_HEARTBEATS, MCP_KQL)
+    _vis("vis-mcp-hb-total",  "Total MCP heartbeats",
+         _vs_count_metric("Total MCP heartbeats"), DV_HEARTBEATS, MCP_KQL)
+    _vis("vis-mcp-hb-pie",    "MCP heartbeat status split",
+         _vs_status_pie("MCP heartbeat status split"), DV_HEARTBEATS, MCP_KQL)
+
+    # Heartbeat timeseries per MCP server
+    _vis("vis-mcp-timeseries", "MCP heartbeats/min per server",
+         _vs_timeseries("MCP heartbeats/min per server", DV_HEARTBEATS, split_size=10),
+         DV_HEARTBEATS, MCP_KQL)
+
+    # Status + uptime table
+    _vis("vis-mcp-status-table", "MCP server status & uptime",
+         _vs_status_table("MCP server status & uptime", ".*-mcp"), DV_HEARTBEATS, MCP_KQL)
+
+    # Uptime horizontal bar
+    _vis("vis-mcp-uptime-bar", "MCP server uptime (seconds)",
+         _vs_uptime_bar("MCP server uptime (seconds)"), DV_HEARTBEATS, MCP_KQL)
+
+    # Heartbeat rate bar
+    _vis("vis-mcp-hb-rate", "MCP heartbeat volume per server",
+         _vs_hb_rate_bar("MCP heartbeat volume per server"), DV_HEARTBEATS, MCP_KQL)
+
+    # Logs (logs-*)
+    _vis("vis-mcp-log-count", "MCP log count by server & level",
+         _vs_log_count_bar("MCP log count by server & level"), DV_LOGS, MCP_KQL)
+    _vis("vis-mcp-log-errors", "MCP error count",
+         _vs_count_metric("MCP error count"), DV_LOGS, f"({MCP_KQL}) AND level.keyword: error")
+    _vis("vis-mcp-log-table", "MCP recent log entries",
+         _vs_log_table("MCP recent log entries"), DV_LOGS, MCP_KQL)
+
+    # Layout (48-wide grid):
+    # Row 0  h=8 : [active: 8] [total hb: 8] [errors: 8] [pie: 24]
+    # Row 8  h=16: [timeseries: 48]
+    # Row 24 h=18: [status+uptime table: 24] [uptime bar: 24]
+    # Row 42 h=16: [hb rate bar: 24] [log count bar: 24]
+    # Row 58 h=18: [log table: 48]
     panels = [
-        _panel("vis-log-count",  0,  0, 48, 20, "q1"),
-        _panel("vis-log-table",  0, 20, 48, 20, "q2"),
+        _panel("vis-mcp-active",       0,  0,  8,  8, "m1"),
+        _panel("vis-mcp-hb-total",     8,  0,  8,  8, "m2"),
+        _panel("vis-mcp-log-errors",   16, 0,  8,  8, "m3"),
+        _panel("vis-mcp-hb-pie",       24, 0, 24,  8, "m4"),
+        _panel("vis-mcp-timeseries",   0,  8, 48, 16, "m5"),
+        _panel("vis-mcp-status-table", 0,  24, 24, 18, "m6"),
+        _panel("vis-mcp-uptime-bar",   24, 24, 24, 18, "m7"),
+        _panel("vis-mcp-hb-rate",      0,  42, 24, 16, "m8"),
+        _panel("vis-mcp-log-count",    24, 42, 24, 16, "m9"),
+        _panel("vis-mcp-log-table",    0,  58, 48, 18, "m10"),
     ]
     refs = [
-        {"type": "index-pattern", "id": DV_LOGS, "name": "kibanaSavedObjectMeta.searchSourceJSON.index"},
+        # heartbeat vis refs
+        {"type": "visualization", "id": "vis-mcp-active",       "name": "panel_m1"},
+        {"type": "visualization", "id": "vis-mcp-hb-total",     "name": "panel_m2"},
+        {"type": "visualization", "id": "vis-mcp-log-errors",   "name": "panel_m3"},
+        {"type": "visualization", "id": "vis-mcp-hb-pie",       "name": "panel_m4"},
+        {"type": "visualization", "id": "vis-mcp-timeseries",   "name": "panel_m5"},
+        {"type": "visualization", "id": "vis-mcp-status-table", "name": "panel_m6"},
+        {"type": "visualization", "id": "vis-mcp-uptime-bar",   "name": "panel_m7"},
+        {"type": "visualization", "id": "vis-mcp-hb-rate",      "name": "panel_m8"},
+        {"type": "visualization", "id": "vis-mcp-log-count",    "name": "panel_m9"},
+        {"type": "visualization", "id": "vis-mcp-log-table",    "name": "panel_m10"},
+    ]
+    _dashboard(DASH_ID_MCP, "MCP Servers — Live Monitor",
+               "Dedicated dashboard: heartbeat health, uptime, and logs for all 5 MCP servers",
+               panels, refs, DV_HEARTBEATS, refresh_ms=10000)
+
+
+# ── Dashboard 3: Service logs ──────────────────────────────────────────────────
+
+def create_logs_dashboard() -> None:
+    print("\n── Service logs dashboard ──────────────────────────────")
+    _vis("vis-log-count", "Log count by service & level", _vs_log_count_bar("Log count by service & level"), DV_LOGS)
+    _vis("vis-log-table", "Recent log entries",           _vs_log_table("Recent log entries"),               DV_LOGS)
+
+    panels = [
+        _panel("vis-log-count", 0,  0, 48, 20, "q1"),
+        _panel("vis-log-table", 0, 20, 48, 20, "q2"),
+    ]
+    refs = [
         {"type": "visualization", "id": "vis-log-count", "name": "panel_q1"},
         {"type": "visualization", "id": "vis-log-table", "name": "panel_q2"},
     ]
-
-    upsert("dashboard", DASH_ID_LOGS, {
-        "title": "Service Logs",
-        "description": "Log volume and recent entries per service",
-        "panelsJSON": json.dumps(panels),
-        "optionsJSON": json.dumps({"hidePanelTitles": False, "useMargins": True}),
-        "timeFrom": "now-1h",
-        "timeTo": "now",
-        "refreshInterval": {"pause": False, "value": 30000},
-        "kibanaSavedObjectMeta": {
-            "searchSourceJSON": json.dumps({"query": {"language": "kuery", "query": ""}, "filter": []})
-        },
-    })
+    _dashboard(DASH_ID_LOGS, "Service Logs",
+               "Log volume and recent entries per service",
+               panels, refs, DV_LOGS, refresh_ms=30000)
 
 
 if __name__ == "__main__":
@@ -356,10 +443,12 @@ if __name__ == "__main__":
     wait_for_kibana()
     create_data_views()
     create_heartbeat_dashboard()
+    create_mcp_dashboard()
     create_logs_dashboard()
 
     print(f"""
 Done. Dashboard URLs:
-  MCP & Heartbeats : {KIBANA_URL}/app/dashboards#/view/{DASH_ID_HEARTBEATS}
-  Service Logs     : {KIBANA_URL}/app/dashboards#/view/{DASH_ID_LOGS}
+  All Services Heartbeats : {KIBANA_URL}/app/dashboards#/view/{DASH_ID_HEARTBEATS}
+  MCP Servers (dedicated) : {KIBANA_URL}/app/dashboards#/view/{DASH_ID_MCP}
+  Service Logs            : {KIBANA_URL}/app/dashboards#/view/{DASH_ID_LOGS}
 """, flush=True)
