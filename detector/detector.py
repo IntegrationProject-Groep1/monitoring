@@ -67,6 +67,13 @@ KNOWN_SYSTEMS = {
     "mailing",
     "iot_gateway",
     "identity-service",
+    "chatbot",
+    # MCP servers tracked as separate services (each has its own heartbeat sidecar)
+    "frontend-mcp",
+    "kassa-mcp",
+    "facturatie-mcp",
+    "crm-mcp",
+    "monitoring-mcp",
 }
 
 logging.basicConfig(
@@ -647,6 +654,9 @@ def main() -> None:
             now = datetime.now(timezone.utc)
             for bucket in res.get("aggregations", {}).get("systems", {}).get("buckets", []):
                 system = bucket["key"]
+                # Monitoring cannot self-alert — chatbot tracks monitoring status via MCP reachability
+                if system == "monitoring":
+                    continue
                 last_value = bucket["last_heartbeat"].get("value")
                 if last_value is None:
                     continue
