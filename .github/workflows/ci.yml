@@ -95,16 +95,29 @@ jobs:
 
       - name: Wait for Logstash API
         run: |
-          for i in $(seq 1 18); do
-            if curl -s http://localhost:9600/_node/pipelines | grep -q '"main"'; then
-              echo "Logstash API is ready"
-              exit 0
+          # 1) Wait for the HTTP endpoint to respond.
+          for i in $(seq 1 24); do
+            if curl -sSf http://localhost:9600/ -o /dev/null; then
+              echo "Logstash API HTTP endpoint is responding"
+              break
             fi
-            echo "Waiting for Logstash API... ($i/18)"
+            echo "Waiting for Logstash API HTTP endpoint... ($i/24)"
             sleep 5
           done
-          echo "Logstash API did not become ready in time" >&2
+
+          # 2) Then wait for the main pipeline to be loaded.
+          for i in $(seq 1 30); do
+            if curl -sSf http://localhost:9600/_node/pipelines | grep -q '"main"'; then
+              echo "Logstash pipelines are ready"
+              exit 0
+            fi
+            echo "Waiting for Logstash pipelines... ($i/30)"
+            sleep 5
+          done
+
+          echo "Logstash pipelines did not become ready in time" >&2
           exit 1
+
 
       - name: Send test heartbeats and platform logs
         run: python3 test/producer.py
