@@ -42,7 +42,7 @@ _auth = (_ES_USER, _ES_PASS) if _ES_PASS else None
 _http = httpx.AsyncClient(timeout=15.0, auth=_auth)
 
 # Known systems (from logstash contract)
-HEARTBEAT_SYSTEMS = {"planning", "crm", "kassa", "facturatie", "monitoring", "frontend", "mailing", "identity-service"}
+HEARTBEAT_SYSTEMS = {"planning", "crm", "kassa", "facturatie", "monitoring", "frontend", "mailing", "identity-service", "chatbot"}
 LOG_SYSTEMS       = {"crm", "kassa", "facturatie", "frontend", "planning", "mailing", "identity-service"}
 LOG_LEVELS        = {"info", "warning", "error"}
 LOG_ACTIONS       = {"registration", "user", "payment", "invoice", "session", "calendar",
