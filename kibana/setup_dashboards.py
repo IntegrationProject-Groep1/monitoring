@@ -60,9 +60,11 @@ def wait_for_kibana(max_wait: int = 120) -> None:
     sys.exit("Kibana did not become ready in time.")
 
 
-def upsert(obj_type: str, obj_id: str, attributes: dict) -> None:
+def upsert(obj_type: str, obj_id: str, attributes: dict, references: list | None = None) -> None:
     url = f"{KIBANA_URL}/api/saved_objects/{obj_type}/{obj_id}"
     body = {"attributes": attributes}
+    if references is not None:
+        body["references"] = references
     r = requests.post(url, json=body, headers=HEADERS, auth=AUTH, verify=False)
     if r.status_code in (200, 201):
         print(f"  ✓ {obj_type}/{obj_id}", flush=True)
@@ -94,7 +96,10 @@ def _vis(vis_id: str, title: str, vis_state: dict, dv_id: str, kql: str = "") ->
         "kibanaSavedObjectMeta": {
             "searchSourceJSON": _search_source(dv_id, kql),
         },
-    })
+    }, references=[
+        {"type": "index-pattern", "id": dv_id,
+         "name": "kibanaSavedObjectMeta.searchSourceJSON.index"},
+    ])
 
 
 def _panel(vis_id: str, col: int, row: int, w: int, h: int, panel_id: str) -> dict:
@@ -127,7 +132,7 @@ def _dashboard(dash_id: str, title: str, description: str, panels: list,
                 "filter": [],
             })
         },
-    })
+    }, references=refs)
 
 
 # ── Data views ─────────────────────────────────────────────────────────────────
@@ -235,7 +240,7 @@ def _vs_status_table(title: str, include_pattern: str = None) -> dict:
         "type": "table",
         "aggs": [
             {"id": "1", "type": "terms",     "schema": "bucket", "params": bucket_params},
-            {"id": "2", "type": "terms",     "schema": "metric", "params": {"field": "status.keyword", "size": 1, "order": "desc"}},
+            {"id": "2", "type": "top_hits",  "schema": "metric", "params": {"field": "status.keyword", "aggregate": "concat", "size": 1, "sortField": "@timestamp", "sortOrder": "desc"}},
             {"id": "3", "type": "max",       "schema": "metric", "params": {"field": "@timestamp"}},
             {"id": "4", "type": "max",       "schema": "metric", "params": {"field": "uptime_seconds"}},
         ],
@@ -345,7 +350,7 @@ def create_heartbeat_dashboard() -> None:
 
 def create_mcp_dashboard() -> None:
     print("\n── Dedicated MCP servers dashboard ────────────────────")
-    MCP_KQL = "system.keyword: *-mcp"
+    MCP_KQL = 'system.keyword: "*-mcp"'
 
     # KPIs (heartbeats-*)
     _vis("vis-mcp-active",    "Active MCP servers",
