@@ -82,6 +82,14 @@ jobs:
             up -d --wait --wait-timeout 90 \
             rabbitmq elasticsearch logstash detector-service
 
+      - name: Fix permissions for Logstash config (test compose bind mounts)
+        run: |
+          # Some CI runners enforce stricter file permissions on bind mounts; Logstash may fail with:
+          # "error: open /usr/share/logstash/config/logstash.yml: permission denied"
+          docker compose --env-file monitoring_elk/.env -f test/docker-compose.yml exec -T logstash \
+            sh -c 'chmod 644 /usr/share/logstash/config/logstash.yml || true'
+
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
