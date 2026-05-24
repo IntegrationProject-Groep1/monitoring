@@ -1,4 +1,5 @@
 import argparse
+import atexit
 import base64
 import json
 import logging
@@ -143,11 +144,14 @@ def rabbitmq_worker():
                         "Dropping message to queue '%s' after %d failed attempts: %s",
                         task.queue, MAX_PUBLISH_RETRIES, exc,
                     )
+                    send_log_xml("error", "system_error",
+                                 f"Message dropped after {MAX_PUBLISH_RETRIES} failed publish attempts to queue '{task.queue}': {str(exc)[:200]}")
             finally:
                 _publish_queue.task_done()
 
         except Exception as exc:
             logger.error("RabbitMQ worker error: %s", exc)
+            send_log_xml("error", "system_error", f"RabbitMQ worker connection error: {str(exc)[:300]}")
             time.sleep(5) # Backoff
 
 def publish(queue_name: str, body: str) -> None:
@@ -185,16 +189,17 @@ def publish_now(queue_name: str, body: str) -> None:
 
 def send_alert_xml(system_name: str) -> None:
     timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    
+
     alert_el = ET.Element("alert")
     ET.SubElement(alert_el, "type").text = "HEARTBEAT_CRITICAL"
     ET.SubElement(alert_el, "system").text = system_name
     ET.SubElement(alert_el, "message").text = f"Systeem {system_name} heeft al meer dan {THRESHOLD_SECONDS}s geen heartbeat gestuurd."
     ET.SubElement(alert_el, "timestamp").text = timestamp
-    
+
     xml_payload = ET.tostring(alert_el, encoding="unicode", xml_declaration=True)
     publish(ALERTS_QUEUE, xml_payload)
     logger.info("Alert published for %s", system_name)
+    send_log_xml("warning", "system_error", f"Heartbeat anomaly detected: {system_name} has not sent a heartbeat in >{THRESHOLD_SECONDS}s — alert published")
 
 
 def send_log_xml(level: str, action: str, message: str, source: str = "monitoring") -> None:
@@ -289,6 +294,7 @@ def send_report_message(report_date: str, attachment: dict | None, template_data
     xml_payload = build_send_mailing_xml(report_date, subject, template_data, attachment)
     publish(REPORT_QUEUE, xml_payload)
     logger.info("Daily report message published to %s", REPORT_QUEUE)
+    send_log_xml("info", "system_error", f"Daily report published to mailing for {report_date}")
 
 
 def query_aggregations(index: str, search_params: dict) -> dict:
@@ -593,6 +599,7 @@ def generate_daily_report(now: datetime | None = None) -> None:
     start = now - timedelta(days=1)
     report_date = start.strftime("%Y-%m-%d")
     logger.info("Generating daily report for %s", report_date)
+    send_log_xml("info", "system_error", f"Daily report generation started for {report_date}")
     try:
         context = build_report_context(start, now)
         pdf_bytes = render_report_pdf(context)
@@ -610,6 +617,7 @@ def generate_daily_report(now: datetime | None = None) -> None:
         }
         send_report_message(report_date, attachment, template_data)
         archive_report_metadata(report_date, context["overall_health"], context["systems_down"], f"reports/platform-report-{report_date}.pdf")
+        send_log_xml("info", "system_error", f"Daily report completed for {report_date} | health={context['overall_health']} | systems_down={context['systems_down']}")
     except Exception as exc:
         logger.exception("Failed to generate daily report")
         send_log_xml("error", "system_error", f"Report generation failed for {report_date}: {exc}")
@@ -647,6 +655,7 @@ def main() -> None:
 
     # Start RabbitMQ background worker
     threading.Thread(target=rabbitmq_worker, daemon=True, name="RabbitMQWorker").start()
+    send_log_xml("info", "system_error", "Monitoring detector started")
 
     if args.run_report:
         generate_daily_report()
@@ -659,6 +668,8 @@ def main() -> None:
                 "Publish queue did not flush within %ds; exiting anyway", flush_timeout
             )
         return
+
+    atexit.register(lambda: send_log_xml("warning", "system_error", "Monitoring detector stopping"))
 
     next_report_date = None
     while True:
@@ -695,6 +706,7 @@ def main() -> None:
                 else:
                     if system in cooldown_list:
                         logger.info("%s is back online", system)
+                        send_log_xml("info", "system_error", f"{system} is back online — heartbeat resumed")
                         del cooldown_list[system]
 
             if should_run_daily_report(now):
@@ -702,8 +714,9 @@ def main() -> None:
                     start_report_generation(now)
                     next_report_date = now.date()
 
-        except Exception:
+        except Exception as exc:
             logger.exception("Error in detector")
+            send_log_xml("error", "system_error", f"Detector main loop error: {str(exc)[:300]}")
 
         time.sleep(1)
 
