@@ -81,6 +81,27 @@ logging.basicConfig(
 )
 logger = logging.getLogger("detector")
 
+_VALID_ACTIONS = {
+    "registration", "user", "payment", "invoice", "session", "calendar",
+    "email", "wallet", "refund", "identity", "xml_validation", "system_error", "badge"
+}
+
+class _MonitoringLogHandler(logging.Handler):
+    """Routes logger.* calls through send_log_xml so they appear in the logs queue."""
+    def emit(self, record):
+        if record.name.startswith("pika") or record.name.startswith("urllib3"):
+            return
+        level = "error" if record.levelno >= logging.ERROR else (
+            "warning" if record.levelno >= logging.WARNING else "info"
+        )
+        action = getattr(record, "action", "system_error")
+        if action not in _VALID_ACTIONS:
+            action = "system_error"
+        try:
+            send_log_xml(level, action, self.format(record))
+        except Exception:
+            pass
+
 es = Elasticsearch([ES_HOST], basic_auth=(ES_USER, ES_PASS) if ES_PASS else None)
 cooldown_list: dict[str, datetime] = {}
 
@@ -143,15 +164,13 @@ def rabbitmq_worker():
                     logger.error(
                         "Dropping message to queue '%s' after %d failed attempts: %s",
                         task.queue, MAX_PUBLISH_RETRIES, exc,
+                        extra={"action": "system_error"},
                     )
-                    send_log_xml("error", "system_error",
-                                 f"Message dropped after {MAX_PUBLISH_RETRIES} failed publish attempts to queue '{task.queue}': {str(exc)[:200]}")
             finally:
                 _publish_queue.task_done()
 
         except Exception as exc:
-            logger.error("RabbitMQ worker error: %s", exc)
-            send_log_xml("error", "system_error", f"RabbitMQ worker connection error: {str(exc)[:300]}")
+            logger.error("RabbitMQ worker error: %s", exc, extra={"action": "system_error"})
             time.sleep(5) # Backoff
 
 def publish(queue_name: str, body: str) -> None:
@@ -198,13 +217,13 @@ def send_alert_xml(system_name: str) -> None:
 
     xml_payload = ET.tostring(alert_el, encoding="unicode", xml_declaration=True)
     publish(ALERTS_QUEUE, xml_payload)
-    logger.info("Alert published for %s", system_name)
-    send_log_xml("warning", "system_error", f"Heartbeat anomaly detected: {system_name} has not sent a heartbeat in >{THRESHOLD_SECONDS}s — alert published")
+    logger.warning("Alert published: %s has not sent a heartbeat in >%ds", system_name, THRESHOLD_SECONDS,
+                   extra={"action": "system_error"})
 
 
 def send_log_xml(level: str, action: str, message: str, source: str = "monitoring") -> None:
     timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    
+
     message_el = ET.Element("message")
     header_el = ET.SubElement(message_el, "header")
     ET.SubElement(header_el, "message_id").text = str(uuid.uuid4())
@@ -212,15 +231,17 @@ def send_log_xml(level: str, action: str, message: str, source: str = "monitorin
     ET.SubElement(header_el, "source").text = source
     ET.SubElement(header_el, "type").text = "log"
     ET.SubElement(header_el, "version").text = "2.0"
-    
+
     body_el = ET.SubElement(message_el, "body")
     ET.SubElement(body_el, "level").text = level
     ET.SubElement(body_el, "action").text = action
     ET.SubElement(body_el, "message").text = message
-    
+
     xml_payload = ET.tostring(message_el, encoding="unicode", xml_declaration=True)
     publish("logs", xml_payload)
-    logger.info("System log published: %s / %s", level, action)
+
+
+logging.getLogger().addHandler(_MonitoringLogHandler())
 
 
 def parse_recipients(raw: str) -> list[dict[str, str]]:
@@ -293,8 +314,7 @@ def send_report_message(report_date: str, attachment: dict | None, template_data
     subject = f"Daily Platform Report — {report_date}"
     xml_payload = build_send_mailing_xml(report_date, subject, template_data, attachment)
     publish(REPORT_QUEUE, xml_payload)
-    logger.info("Daily report message published to %s", REPORT_QUEUE)
-    send_log_xml("info", "system_error", f"Daily report published to mailing for {report_date}")
+    logger.info("Daily report published to mailing for %s", report_date, extra={"action": "system_error"})
 
 
 def query_aggregations(index: str, search_params: dict) -> dict:
@@ -598,8 +618,7 @@ def generate_daily_report(now: datetime | None = None) -> None:
     now = now or datetime.now(timezone.utc)
     start = now - timedelta(days=1)
     report_date = start.strftime("%Y-%m-%d")
-    logger.info("Generating daily report for %s", report_date)
-    send_log_xml("info", "system_error", f"Daily report generation started for {report_date}")
+    logger.info("Daily report generation started for %s", report_date, extra={"action": "system_error"})
     try:
         context = build_report_context(start, now)
         pdf_bytes = render_report_pdf(context)
@@ -617,10 +636,12 @@ def generate_daily_report(now: datetime | None = None) -> None:
         }
         send_report_message(report_date, attachment, template_data)
         archive_report_metadata(report_date, context["overall_health"], context["systems_down"], f"reports/platform-report-{report_date}.pdf")
-        send_log_xml("info", "system_error", f"Daily report completed for {report_date} | health={context['overall_health']} | systems_down={context['systems_down']}")
+        logger.info("Daily report completed for %s | health=%s | systems_down=%d",
+                    report_date, context["overall_health"], context["systems_down"],
+                    extra={"action": "system_error"})
     except Exception as exc:
-        logger.exception("Failed to generate daily report")
-        send_log_xml("error", "system_error", f"Report generation failed for {report_date}: {exc}")
+        logger.error("Report generation failed for %s: %s", report_date, exc,
+                     extra={"action": "system_error"})
         send_report_message(
             report_date,
             None,
@@ -655,7 +676,7 @@ def main() -> None:
 
     # Start RabbitMQ background worker
     threading.Thread(target=rabbitmq_worker, daemon=True, name="RabbitMQWorker").start()
-    send_log_xml("info", "system_error", "Monitoring detector started")
+    logger.info("Monitoring detector started", extra={"action": "system_error"})
 
     if args.run_report:
         generate_daily_report()
@@ -669,7 +690,7 @@ def main() -> None:
             )
         return
 
-    atexit.register(lambda: send_log_xml("warning", "system_error", "Monitoring detector stopping"))
+    atexit.register(lambda: logger.warning("Monitoring detector stopping", extra={"action": "system_error"}))
 
     next_report_date = None
     while True:
@@ -705,8 +726,8 @@ def main() -> None:
                         cooldown_list[system] = now
                 else:
                     if system in cooldown_list:
-                        logger.info("%s is back online", system)
-                        send_log_xml("info", "system_error", f"{system} is back online — heartbeat resumed")
+                        logger.info("%s is back online — heartbeat resumed", system,
+                                    extra={"action": "system_error"})
                         del cooldown_list[system]
 
             if should_run_daily_report(now):
@@ -715,8 +736,7 @@ def main() -> None:
                     next_report_date = now.date()
 
         except Exception as exc:
-            logger.exception("Error in detector")
-            send_log_xml("error", "system_error", f"Detector main loop error: {str(exc)[:300]}")
+            logger.error("Detector main loop error: %s", exc, extra={"action": "system_error"})
 
         time.sleep(1)
 
