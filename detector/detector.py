@@ -187,7 +187,7 @@ def send_alert_xml(system_name: str) -> None:
     ET.SubElement(alert_el, "timestamp").text = timestamp
     
     xml_payload = ET.tostring(alert_el, encoding="unicode", xml_declaration=True)
-    publish_now(ALERTS_QUEUE, xml_payload)
+    publish(ALERTS_QUEUE, xml_payload)
     logger.info("Alert published for %s", system_name)
 
 
