@@ -46,7 +46,7 @@ HEARTBEAT_QUEUE = "heartbeat"
 LOGS_QUEUE = "logs"
 
 HEARTBEAT_SOURCES = ["planning", "crm", "kassa", "facturatie", "monitoring", "frontend", "mailing", "chatbot", "rabbitmq"]
-LOG_SOURCES = ["planning", "crm", "kassa", "facturatie", "frontend", "mailing", "identity-service"]
+LOG_SOURCES = ["planning", "crm", "kassa", "facturatie", "frontend", "mailing", "monitoring", "identity-service"]
 
 
 def _envelope(source: str, msg_type: str, version: str = "2.0") -> tuple[ET.Element, ET.Element, ET.Element]:
