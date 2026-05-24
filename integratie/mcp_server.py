@@ -44,7 +44,7 @@ _http = httpx.AsyncClient(timeout=15.0, auth=_auth)
 # Known systems (from logstash contract)
 HEARTBEAT_SYSTEMS = {
     "planning", "crm", "kassa", "facturatie", "monitoring", "frontend",
-    "mailing", "identity-service", "chatbot",
+    "mailing", "identity-service", "chatbot", "rabbitmq",
     "frontend-mcp", "kassa-mcp", "facturatie-mcp", "crm-mcp", "monitoring-mcp",
 }
 LOG_SYSTEMS       = {"crm", "kassa", "facturatie", "frontend", "planning", "mailing", "identity-service"}

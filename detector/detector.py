@@ -1,4 +1,4 @@
-﻿import argparse
+import argparse
 import atexit
 import base64
 import json
@@ -56,7 +56,6 @@ BUSINESS_ACTIONS = {
     "badge": "Badge scans at entry",
     "email": "Mailings sent",
 }
-
 KNOWN_SYSTEMS = {
     "planning",
     "crm",
@@ -65,9 +64,9 @@ KNOWN_SYSTEMS = {
     "monitoring",
     "frontend",
     "mailing",
-    "iot_gateway",
     "identity-service",
     "chatbot",
+    "rabbitmq",
     # MCP servers tracked as separate services (each has its own heartbeat sidecar)
     "frontend-mcp",
     "kassa-mcp",
