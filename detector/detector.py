@@ -281,7 +281,7 @@ def build_send_mailing_xml(
 def send_report_message(report_date: str, attachment: dict | None, template_data: dict) -> None:
     subject = f"Daily Platform Report — {report_date}"
     xml_payload = build_send_mailing_xml(report_date, subject, template_data, attachment)
-    publish_now(REPORT_QUEUE, xml_payload)
+    publish(REPORT_QUEUE, xml_payload)
     logger.info("Daily report message published to %s", REPORT_QUEUE)
 
 
