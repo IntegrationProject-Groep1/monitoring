@@ -693,6 +693,8 @@ def main() -> None:
     atexit.register(lambda: logger.warning("Monitoring detector stopping", extra={"action": "system_error"}))
 
     next_report_date = None
+    _consecutive_errors = 0
+    _MAX_BACKOFF = 60  # seconds
     while True:
         now = datetime.now(timezone.utc)
         try:
@@ -708,6 +710,7 @@ def main() -> None:
                 },
             }
             res = query_aggregations("heartbeats-*", heartbeat_query)
+            _consecutive_errors = 0
             now = datetime.now(timezone.utc)
             for bucket in res.get("aggregations", {}).get("systems", {}).get("buckets", []):
                 system = bucket["key"]
@@ -736,7 +739,17 @@ def main() -> None:
                     next_report_date = now.date()
 
         except Exception as exc:
-            logger.error("Detector main loop error: %s", exc, extra={"action": "system_error"})
+            _consecutive_errors += 1
+            # Only log the first failure and then once per backoff window to avoid flooding
+            if _consecutive_errors == 1 or _consecutive_errors % 10 == 0:
+                logger.error(
+                    "Detector main loop error (attempt %d): %s",
+                    _consecutive_errors, exc,
+                    extra={"action": "system_error"},
+                )
+            backoff = min(2 ** (_consecutive_errors - 1), _MAX_BACKOFF)
+            time.sleep(backoff)
+            continue
 
         time.sleep(1)
 
