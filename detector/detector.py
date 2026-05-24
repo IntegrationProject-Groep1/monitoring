@@ -1,4 +1,4 @@
-﻿import argparse
+import argparse
 import base64
 import json
 import logging
@@ -63,7 +63,6 @@ KNOWN_SYSTEMS = {
     "monitoring",
     "frontend",
     "mailing",
-    "iot_gateway",
     "identity-service",
     "chatbot",
     "rabbitmq",
