@@ -75,32 +75,9 @@ KNOWN_SYSTEMS = {
     "monitoring-mcp",
 }
 
-logging.basicConfig(
-    level=os.getenv("LOG_LEVEL", "INFO"),
-    format="%(asctime)s %(levelname)s %(message)s",
-)
+logging.getLogger().setLevel(getattr(logging, os.getenv("LOG_LEVEL", "INFO").upper(), logging.INFO))
+logging.getLogger("pika").setLevel(logging.WARNING)
 logger = logging.getLogger("detector")
-
-_VALID_ACTIONS = {
-    "registration", "user", "payment", "invoice", "session", "calendar",
-    "email", "wallet", "refund", "identity", "xml_validation", "system_error", "badge"
-}
-
-class _MonitoringLogHandler(logging.Handler):
-    """Routes logger.* calls through send_log_xml so they appear in the logs queue."""
-    def emit(self, record):
-        if record.name.startswith("pika") or record.name.startswith("urllib3"):
-            return
-        level = "error" if record.levelno >= logging.ERROR else (
-            "warning" if record.levelno >= logging.WARNING else "info"
-        )
-        action = getattr(record, "action", "system_error")
-        if action not in _VALID_ACTIONS:
-            action = "system_error"
-        try:
-            send_log_xml(level, action, self.format(record))
-        except Exception:
-            pass
 
 es = Elasticsearch([ES_HOST], basic_auth=(ES_USER, ES_PASS) if ES_PASS else None)
 cooldown_list: dict[str, datetime] = {}
@@ -221,27 +198,8 @@ def send_alert_xml(system_name: str) -> None:
                    extra={"action": "system_error"})
 
 
-def send_log_xml(level: str, action: str, message: str, source: str = "monitoring") -> None:
-    timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-
-    message_el = ET.Element("message")
-    header_el = ET.SubElement(message_el, "header")
-    ET.SubElement(header_el, "message_id").text = str(uuid.uuid4())
-    ET.SubElement(header_el, "timestamp").text = timestamp
-    ET.SubElement(header_el, "source").text = source
-    ET.SubElement(header_el, "type").text = "log"
-    ET.SubElement(header_el, "version").text = "2.0"
-
-    body_el = ET.SubElement(message_el, "body")
-    ET.SubElement(body_el, "level").text = level
-    ET.SubElement(body_el, "action").text = action
-    ET.SubElement(body_el, "message").text = message
-
-    xml_payload = ET.tostring(message_el, encoding="unicode", xml_declaration=True)
-    publish("logs", xml_payload)
-
-
-logging.getLogger().addHandler(_MonitoringLogHandler())
+from rabbitmq_log_handler import RabbitMQLogHandler
+logging.getLogger().addHandler(RabbitMQLogHandler(source_system="monitoring"))
 
 
 def parse_recipients(raw: str) -> list[dict[str, str]]:
