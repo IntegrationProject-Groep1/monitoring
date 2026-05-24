@@ -76,6 +76,7 @@ The accepted `source` value in the XML header differs per pipeline (per contract
 | Frontend (`frontend`) | ✓ | ✓ |
 | Mailing (`mailing`) | ✓ | ✓ |
 | Monitoring (`monitoring`) | ✓ | ✓ |
+| RabbitMQ (`rabbitmq`) | ✓ | — |
 | Identity service (`identity-service`) | — | ✓ |
 
 Monitoring sends both heartbeats and logs. Identity service is exempt from the heartbeat sidecar (RPC-only) but does emit logs. Anything outside the per-pipeline whitelist is sent to the quarantine index. Matching is case-insensitive — Logstash lowercases the value. Whitelists live in `monitoring_elk/logstash/pipeline/logstash.conf`.

@@ -55,7 +55,6 @@ BUSINESS_ACTIONS = {
     "badge": "Badge scans at entry",
     "email": "Mailings sent",
 }
-
 KNOWN_SYSTEMS = {
     "planning",
     "crm",
@@ -67,6 +66,7 @@ KNOWN_SYSTEMS = {
     "iot_gateway",
     "identity-service",
     "chatbot",
+    "rabbitmq",
     # MCP servers tracked as separate services (each has its own heartbeat sidecar)
     "frontend-mcp",
     "kassa-mcp",
