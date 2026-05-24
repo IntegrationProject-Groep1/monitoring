@@ -17,7 +17,6 @@ from elasticsearch import Elasticsearch, NotFoundError
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from weasyprint import HTML
 
-# ... (Configuraties remains the same until ES_HOST)
 ES_HOST = os.getenv("ES_HOST", "http://elasticsearch:9200")
 ES_USER = os.getenv("ES_ADMIN_USER", "elastic")
 ES_PASS = os.getenv("ES_ADMIN_PASS")
@@ -155,7 +154,34 @@ def rabbitmq_worker():
 def publish(queue_name: str, body: str) -> None:
     _publish_queue.put(PublishTask(queue_name, body))
 
-# Remove old _get_rabbit_channel and threading.local logic
+
+def publish_now(queue_name: str, body: str) -> None:
+    """Publish synchronously to RabbitMQ.
+
+    Used for CI one-shot modes (alerts + --run-report) to avoid timing/race
+    issues with the background worker.
+    """
+    credentials = pika.PlainCredentials(RABBITMQ_USER, RABBITMQ_PASS)
+    parameters = pika.ConnectionParameters(
+        host=RABBITMQ_HOST,
+        port=RABBITMQ_PORT,
+        virtual_host=RABBITMQ_VHOST,
+        credentials=credentials,
+        heartbeat=60,
+        blocked_connection_timeout=30,
+    )
+    connection = pika.BlockingConnection(parameters)
+    try:
+        channel = connection.channel()
+        channel.queue_declare(queue=queue_name, durable=True)
+        channel.basic_publish(
+            exchange="",
+            routing_key=queue_name,
+            body=body,
+            properties=pika.BasicProperties(delivery_mode=2),
+        )
+    finally:
+        connection.close()
 
 
 def send_alert_xml(system_name: str) -> None:
