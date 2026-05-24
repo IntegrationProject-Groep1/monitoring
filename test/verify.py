@@ -29,7 +29,7 @@ LOGS_INDEX = f"logs-{TODAY}"
 LOGS_QUARANTINE_INDEX = f"logs-quarantine-{TODAY}"
 
 EXPECTED_HEARTBEAT_SYSTEMS = ["planning", "crm", "kassa", "facturatie", "monitoring", "frontend", "mailing", "chatbot", "rabbitmq"]
-EXPECTED_LOG_SOURCES = ["planning", "crm", "kassa", "facturatie", "frontend", "mailing", "identity-service"]
+EXPECTED_LOG_SOURCES = ["planning", "crm", "kassa", "facturatie", "frontend", "mailing", "monitoring", "identity-service"]
 
 
 def es_request(path: str) -> dict:
