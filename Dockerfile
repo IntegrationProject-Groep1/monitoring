@@ -28,7 +28,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY detector/requirements.txt requirements-detector.txt
 COPY integratie/requirements.txt requirements-mcp.txt
 RUN pip install --no-cache-dir -r requirements-detector.txt -r requirements-mcp.txt
-COPY detector/detector.py .
+COPY detector/detector.py detector/rabbitmq_log_handler.py ./
 COPY detector/templates ./templates
 COPY integratie/mcp_server.py .
 CMD ["python", "-u", "detector.py"]
