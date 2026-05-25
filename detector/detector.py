@@ -272,7 +272,7 @@ def send_report_message(report_date: str, attachment: dict | None, template_data
     subject = f"Daily Platform Report — {report_date}"
     xml_payload = build_send_mailing_xml(report_date, subject, template_data, attachment)
     publish(REPORT_QUEUE, xml_payload)
-    logger.info("Daily report published to mailing for %s", report_date, extra={"action": "system_error"})
+    logger.info("Daily report published to mailing for %s", report_date, extra={"action": "email"})
 
 
 def query_aggregations(index: str, search_params: dict) -> dict:
@@ -576,7 +576,7 @@ def generate_daily_report(now: datetime | None = None) -> None:
     now = now or datetime.now(timezone.utc)
     start = now - timedelta(days=1)
     report_date = start.strftime("%Y-%m-%d")
-    logger.info("Daily report generation started for %s", report_date, extra={"action": "system_error"})
+    logger.info("Daily report generation started for %s", report_date, extra={"action": "email"})
     try:
         context = build_report_context(start, now)
         pdf_bytes = render_report_pdf(context)
@@ -596,7 +596,7 @@ def generate_daily_report(now: datetime | None = None) -> None:
         archive_report_metadata(report_date, context["overall_health"], context["systems_down"], f"reports/platform-report-{report_date}.pdf")
         logger.info("Daily report completed for %s | health=%s | systems_down=%d",
                     report_date, context["overall_health"], context["systems_down"],
-                    extra={"action": "system_error"})
+                    extra={"action": "email"})
     except Exception as exc:
         logger.error("Report generation failed for %s: %s", report_date, exc,
                      extra={"action": "system_error"})
@@ -634,7 +634,7 @@ def main() -> None:
 
     # Start RabbitMQ background worker
     threading.Thread(target=rabbitmq_worker, daemon=True, name="RabbitMQWorker").start()
-    logger.info("Monitoring detector started", extra={"action": "system_error"})
+    logger.info("Monitoring detector started")
 
     if args.run_report:
         generate_daily_report()
@@ -648,7 +648,7 @@ def main() -> None:
             )
         return
 
-    atexit.register(lambda: logger.warning("Monitoring detector stopping", extra={"action": "system_error"}))
+    atexit.register(lambda: logger.warning("Monitoring detector stopping"))
 
     next_report_date = None
     _consecutive_errors = 0

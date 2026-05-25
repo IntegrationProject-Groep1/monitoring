@@ -29,7 +29,9 @@ class RabbitMQLogHandler(logging.Handler):
     def emit(self, record: logging.LogRecord) -> None:
         if self._recursion_guard:
             return
-        if record.name.startswith("pika") or record.name.startswith("urllib3"):
+        if record.name.startswith(("pika", "urllib3", "elasticsearch", "elastic_transport")):
+            return
+        if not hasattr(record, "action"):
             return
 
         self._recursion_guard = True
